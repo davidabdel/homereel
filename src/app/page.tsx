@@ -137,12 +137,60 @@ export default function LandingPage() {
           </div>
         </div>
 
-        <div className="absolute right-[4vw] top-[120px] hidden flex-col items-end gap-[18px] sm:flex">
+        {/* The whole proposition, as a picture: their photos on the left, the
+            film those exact photos became on the right. Both are real — the
+            three stills are source frames for the reel playing beside them,
+            not stock. Kept short and high so it never crowds the headline,
+            which is the tallest thing on the page. */}
+        <div className="absolute right-[4vw] top-[104px] hidden items-start gap-4 lg:flex">
+          <div className="relative h-[152px] w-[150px] shrink-0">
+            {[
+              { src: "/hero/photo3.jpg", rot: -9, x: 0, y: 16, z: 1 },
+              { src: "/hero/photo2.jpg", rot: 5, x: 14, y: 8, z: 2 },
+              { src: "/hero/photo1.jpg", rot: -2, x: 5, y: 0, z: 3 },
+            ].map((ph) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={ph.src}
+                src={ph.src}
+                alt=""
+                className="absolute w-[132px] border-[3px] border-[#131118] bg-[#F1EEE3] object-cover shadow-[4px_4px_0_rgba(19,17,24,0.3)]"
+                style={{ transform: `rotate(${ph.rot}deg)`, left: ph.x, top: ph.y, zIndex: ph.z }}
+              />
+            ))}
+            <div className="font-mono-brand absolute -bottom-1 left-2 z-10 border-2 border-[#131118] bg-[#D8FF3E] px-2 py-[2px] text-[10px] font-bold">
+              THEIR PHOTOS
+            </div>
+          </div>
+
+          <svg width="52" height="28" viewBox="0 0 52 28" aria-hidden className="mt-[44px] shrink-0">
+            <path d="M2 14h34M30 4l12 10-12 10" fill="none" stroke="#131118"
+                  strokeWidth="4.5" strokeLinecap="square" strokeLinejoin="miter" />
+          </svg>
+
+          <div className="relative shrink-0">
+            <video
+              src="/hero/culverston.mp4"
+              poster="/hero/culverston.jpg"
+              preload="metadata"
+              autoPlay
+              muted
+              loop
+              playsInline
+              className="h-[152px] w-[270px] border-[3px] border-[#131118] object-cover shadow-[6px_6px_0_#131118]"
+            />
+            <div className="font-mono-brand absolute bottom-2 right-2 border-2 border-[#131118] bg-[#6E2CF4] px-2 py-[2px] text-[10px] font-bold text-[#F1EEE3]">
+              ONE REEL
+            </div>
+          </div>
+        </div>
+
+        <div className="absolute right-[4vw] top-[300px] hidden flex-col items-end gap-[18px] xl:flex">
           <div
-            className="flex h-[130px] w-[130px] flex-col items-center justify-center rounded-full border-[3px] border-[#131118] bg-[#6E2CF4] text-center text-[#F1EEE3]"
+            className="flex h-[120px] w-[120px] flex-col items-center justify-center rounded-full border-[3px] border-[#131118] bg-[#6E2CF4] text-center text-[#F1EEE3]"
             style={{ animation: "wobble 3.5s ease-in-out infinite alternate" }}
           >
-            <span className="font-display text-[34px]">$19</span>
+            <span className="font-display text-[32px]">$19</span>
             <span className="font-mono-brand text-[11px] font-bold">A MONTH</span>
           </div>
           <div
