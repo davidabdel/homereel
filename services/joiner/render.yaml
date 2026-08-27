@@ -1,0 +1,13 @@
+# Deploy: Render dashboard -> New -> Blueprint -> point at this repo.
+# Root directory must be services/joiner.
+services:
+  - type: web
+    name: homereel-joiner
+    runtime: docker
+    plan: starter          # 512MB is enough for a 10-shot 1080p join
+    region: singapore      # closest Render region to AU
+    rootDir: services/joiner
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8080
