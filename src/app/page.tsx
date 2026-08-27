@@ -78,7 +78,7 @@ export default function LandingPage() {
             href="/register"
             className="inline-block border-[3px] border-[#131118] bg-[#D8FF3E] px-5 py-2.5 text-[15px] font-extrabold uppercase tracking-[0.03em] text-[#131118] shadow-[4px_4px_0_#131118] transition-colors hover:bg-[#6E2CF4] hover:text-[#F1EEE3]"
           >
-            Start free
+            Get started
           </Link>
         </div>
       </nav>

@@ -20,6 +20,7 @@ FILES=(
   supabase/migrations/0002_projects.sql
   supabase/migrations/0003_stripe_billing.sql
   supabase/migrations/0004_homereel_wallet.sql   # two-bucket wallet, reservations, shots, the $19 plan
+  supabase/migrations/0005_signup_and_grants.sql # empty wallet on signup; webhook grant functions
 )
 
 for f in "${FILES[@]}"; do
