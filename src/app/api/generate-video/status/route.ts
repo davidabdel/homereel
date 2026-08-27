@@ -1,105 +1,65 @@
 import { NextResponse } from "next/server";
-import { getRouteUser, unauthorized } from "@/lib/api-guard";
+import { getRouteUser, unauthorized, settleCredits, releaseCredits } from "@/lib/api-guard";
+import { pollShot } from "@/lib/film";
 
 export const runtime = "nodejs";
 
-function env(name: string) {
-  return process.env[name];
-}
+type Watched = { taskId: string; creditsHeld: number; settled?: boolean };
 
-export async function GET(req: Request) {
+/**
+ * Poll a film's shots and settle the ledger as each one lands.
+ *
+ * Both Hailuo tiers use the standard envelope, so there is no per-model
+ * endpoint guessing here — the old Veo path tried nine URLs in turn because
+ * Veo has its own poll route and a JSON-string result field. That's gone.
+ *
+ * The client passes `settled` back for shots it has already been told about,
+ * so a shot is only ever charged or refunded once.
+ */
+export async function POST(req: Request) {
   try {
-    if (!(await getRouteUser())) return unauthorized();
+    const auth = await getRouteUser();
+    if (!auth) return unauthorized();
 
-    const { searchParams } = new URL(req.url);
-    const taskId = searchParams.get("taskId");
-    if (!taskId) return NextResponse.json({ ok: false, error: "Missing taskId" }, { status: 400 });
-
-    const KIE_API_KEY = env("KIE_API_KEY");
-    const KIE_API_BASE = env("KIE_API_BASE") ?? "https://api.kie.ai";
-    if (!KIE_API_KEY) return NextResponse.json({ ok: false, error: "KIE_API_KEY not configured" }, { status: 500 });
-
-    // Try Veo-specific endpoints first, then fall back to generic jobs recordInfo
-    const endpoints = [
-      // KIE docs recommend this endpoint
-      `/api/v1/veo/record-info`,
-      // Possible casing variants and other Veo endpoints
-      `/api/v1/veo/recordInfo`,
-      `/api/v1/veo/get`,
-      `/api/v1/veo/detail`,
-      `/api/v1/veo/details`,
-      `/api/v1/veo/getVideo`,
-      `/api/v1/veo/getVideoDetails`,
-      // Generic job record info
-      `/api/v1/jobs/recordInfo`,
-      `/api/v1/jobs/record-info`,
-    ];
-    let infoRes: Response | null = null;
-    let infoJson: any = null;
-    for (const ep of endpoints) {
-      const url = `${KIE_API_BASE}${ep}?taskId=${encodeURIComponent(taskId)}`;
-      const r = await fetch(url, { headers: { Authorization: `Bearer ${KIE_API_KEY}` } });
-      const j = await r.json().catch(() => ({}));
-      if (r.ok) {
-        infoRes = r; infoJson = j; break;
-      }
-      // If 404 or 422, keep trying next
-    }
-    if (!infoRes) {
-      return NextResponse.json({ ok: false, error: "All status endpoints failed", tried: endpoints }, { status: 502 });
+    const body = await req.json().catch(() => null);
+    const watched: Watched[] = Array.isArray(body?.shots) ? body.shots : [];
+    if (watched.length === 0) {
+      return NextResponse.json({ ok: false, error: "No shots to poll" }, { status: 400 });
     }
 
-    // Normalize a few fields
-    const data: any = (infoJson && (infoJson.data || infoJson)) || {};
-    const response: any = data.response || infoJson.response || {};
-    const state: string | undefined = data.state || infoJson.state || data.status || infoJson.status;
-    let flag: number | undefined = data.successFlag;
-    if (state === "success") flag = 1;
-    if (state === "failed" || state === "error") flag = 2;
-    if (typeof data.status === "number") {
-      if (data.status === 1) flag = 1; // success
-      if (data.status === 2 || data.status === 3) flag = 2; // failed
-    }
-    // Normalize KIE successFlag semantics: 0 generating, 1 success, 2/3 failed
-    if (flag === 3) flag = 2;
-    // Progress can come in many shapes: 0..1, 0..100, string "65%", fields like percent/percentage/progressPercent
-    let progress: number | undefined = undefined;
-    const progressRaw: any =
-      data.progress ?? response.progress ?? infoJson.progress ??
-      data.percent ?? response.percent ?? infoJson.percent ??
-      data.percentage ?? response.percentage ?? infoJson.percentage ??
-      data.progressPercent ?? response.progressPercent ?? infoJson.progressPercent;
-    if (typeof progressRaw === "number") progress = progressRaw > 1 ? progressRaw / 100 : progressRaw;
-    if (typeof progressRaw === "string") {
-      const n = Number(String(progressRaw).replace(/%$/, ""));
-      if (!Number.isNaN(n)) progress = n > 1 ? n / 100 : n;
-    }
+    const shots = await Promise.all(
+      watched.map(async (w) => {
+        if (typeof w?.taskId !== "string" || !w.taskId) {
+          return { taskId: "", state: "fail" as const, failMsg: "Missing task id", settled: true };
+        }
+        const s = await pollShot(w.taskId);
+        const held = Math.max(0, Number(w.creditsHeld) || 0);
 
-    // Collect URLs from common fields
-    let urls: string[] = (response.result_urls || response.resultUrls || response.videos || response.urls || []) as string[];
-    // Additional common places
-    const extras: (string | undefined)[] = [
-      data.videoUrl, data.url, response.videoUrl, response.url,
-      data.downloadUrl, response.downloadUrl,
-    ];
-    urls = urls.concat(extras.filter((u): u is string => typeof u === "string"));
-    try {
-      const rj = data.resultJson || infoJson.resultJson;
-      if (typeof rj === "string" && rj.trim().startsWith("{")) {
-        const parsed = JSON.parse(rj);
-        if (Array.isArray(parsed?.resultUrls)) urls = [...urls, ...parsed.resultUrls];
-        if (typeof parsed?.url === "string") urls = [...urls, parsed.url];
-        if (typeof parsed?.videoUrl === "string") urls = [...urls, parsed.videoUrl];
-      }
-    } catch {}
-    // Deduplicate
-    urls = Array.from(new Set(urls.filter((u) => typeof u === "string" && u)));
+        // Only touch the ledger on the transition into a terminal state.
+        if (!w.settled && held > 0) {
+          if (s.state === "success") {
+            await settleCredits(auth.supabase, held, `Shot generated (${w.taskId})`);
+          } else if (s.state === "fail") {
+            // Costs nothing at KIE, so it costs the agent nothing.
+            await releaseCredits(auth.supabase, held, `Shot failed (${w.taskId})`);
+          }
+        }
 
-    // Human-friendly stage message if provided
-    const stage: string | undefined = data.stage || response.stage || data.step || response.step || data.message || response.message;
+        const terminal = s.state === "success" || s.state === "fail";
+        return { ...s, settled: w.settled || terminal };
+      })
+    );
 
-    return NextResponse.json({ ...infoJson, normalized: { flag, progress, urls, state, stage } });
-  } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message || "Unknown error" }, { status: 500 });
+    const done = shots.every((s) => s.state === "success" || s.state === "fail");
+    return NextResponse.json({
+      ok: true,
+      done,
+      succeeded: shots.filter((s) => s.state === "success").length,
+      failed: shots.filter((s) => s.state === "fail").length,
+      shots,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

@@ -1,31 +1,31 @@
 "use client";
 
 import { motion, useReducedMotion } from "framer-motion";
-import { ListChecks, UserRound, PencilLine, PlayCircle } from "lucide-react";
+import { Images, Gauge, Users, PlayCircle } from "lucide-react";
 
 const steps = [
   {
     step: 1,
-    title: "Pick your Ad Style",
-    desc: "UGC, Product or Both",
-    Icon: ListChecks,
+    title: "Upload the photos",
+    desc: "The ones already on your listing. One photo becomes one shot.",
+    Icon: Images,
   },
   {
     step: 2,
-    title: "Create a Persona",
-    desc: "Upload an image or create your own AI",
-    Icon: UserRound,
+    title: "Standard or High Definition",
+    desc: "Two buttons. The credit total updates before you commit.",
+    Icon: Gauge,
   },
   {
     step: 3,
-    title: "Write Your Hook",
-    desc: "With the help of AI write a dialogue that grabs attention",
-    Icon: PencilLine,
+    title: "Add a family",
+    desc: "Choose which living spaces get people. Never bathrooms, never exteriors.",
+    Icon: Users,
   },
   {
     step: 4,
-    title: "Turn your Ad into a video",
-    desc: "Your style, your location, your way",
+    title: "Generate and approve",
+    desc: "Every shot comes back beside the photo it came from.",
     Icon: PlayCircle,
   },
 ];

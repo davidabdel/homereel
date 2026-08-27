@@ -9,11 +9,17 @@ import { getUserCredits } from "@/lib/subscription-service";
 
 const nav = [
   { href: "/app", label: "Home" },
-  { href: "/app/create", label: "Create New Ad" },
-  { href: "/app/projects", label: "My Projects" },
-  { href: "/app/subscription", label: "Subscription" },
+  { href: "/app/create", label: "New Film" },
+  { href: "/app/projects", label: "My Films" },
+  { href: "/app/subscription", label: "Credits" },
   { href: "/app/profile", label: "Profile" },
 ];
+
+/**
+ * Lets the whole app be clicked through locally with no Supabase, Stripe or
+ * KIE credentials. Set NEXT_PUBLIC_DEMO=1 in .env.local. Never enable in prod.
+ */
+export const DEMO = process.env.NEXT_PUBLIC_DEMO === "1";
 
 export default function AppLayout({ children }: PropsWithChildren) {
   const pathname = usePathname();
@@ -23,6 +29,7 @@ export default function AppLayout({ children }: PropsWithChildren) {
   const [isLoadingCredits, setIsLoadingCredits] = useState(false);
   
   useEffect(() => {
+    if (DEMO) return;
     if (!isLoading && !user) {
       router.push('/login');
     }
@@ -30,6 +37,7 @@ export default function AppLayout({ children }: PropsWithChildren) {
   
   useEffect(() => {
     async function loadCredits() {
+      if (DEMO) { setCredits(1000); return; }
       if (!user) return;
       
       setIsLoadingCredits(true);
@@ -53,7 +61,7 @@ export default function AppLayout({ children }: PropsWithChildren) {
     loadCredits();
   }, [user]);
   
-  if (isLoading) {
+  if (isLoading && !DEMO) {
     return <LoadingScreen />;
   }
   return (
@@ -63,7 +71,7 @@ export default function AppLayout({ children }: PropsWithChildren) {
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
           <div className="flex items-center gap-6">
             <Link href="/" className="font-display flex items-baseline gap-0.5 text-[24px]">
-              UNREAL<span className="text-[#6E2CF4]">✱</span>ADZ
+              HOME<span className="text-[#6E2CF4]">✱</span>REEL
             </Link>
           </div>
           <div className="flex items-center gap-3">

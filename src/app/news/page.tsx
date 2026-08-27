@@ -12,7 +12,7 @@ function formatDate(iso: string) {
 }
 
 export const metadata = {
-  title: "News & Insights | UnrealAdz",
+  title: "News & Insights | HomeReel",
   description:
     "The latest news, analysis, and strategy for AI-powered advertising. Updated daily for performance marketers and e-commerce brands.",
 };
@@ -30,7 +30,7 @@ export default function NewsPage() {
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-4">
           <div className="flex items-center gap-6">
             <Link href="/" className="font-display flex items-baseline gap-0.5 text-[24px]">
-              UNREAL<span className="text-[#6E2CF4]">✱</span>ADZ
+              HOME<span className="text-[#6E2CF4]">✱</span>REEL
             </Link>
             <nav className="hidden items-center gap-2 text-sm font-bold uppercase md:flex">
               <Link href="/" className="hover:text-[#6E2CF4]">Home</Link>
@@ -170,13 +170,13 @@ export default function NewsPage() {
             TURN YOUR PRODUCT INTO SCROLL-STOPPING ADS — IN MINUTES
           </h2>
           <p className="mx-auto mt-3 max-w-xl text-[#F1EEE3]/80">
-            UnrealAdz generates UGC-style video ads from a single image. No team, no budget, no waiting.
+            HomeReel turns the photos already on your listing into a film. No camera, no crew, nothing added.
           </p>
           <Link
             href="/register"
             className="mt-6 inline-block border-[3px] border-[#131118] bg-[#D8FF3E] px-8 py-3 text-sm font-extrabold uppercase text-[#131118] shadow-[6px_6px_0_#131118] transition-colors hover:bg-[#F1EEE3]"
           >
-            Try UnrealAdz Free →
+            Try HomeReel Free →
           </Link>
         </div>
       </div>
@@ -185,7 +185,7 @@ export default function NewsPage() {
       <footer className="border-t-[3px] border-[#131118] bg-[#131118] px-6 py-10 text-[#F1EEE3]">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 md:flex-row">
           <Link href="/" className="font-display text-[22px]">
-            UNREAL<span className="text-[#6E2CF4]">✱</span>ADZ
+            HOME<span className="text-[#6E2CF4]">✱</span>REEL
           </Link>
           <div className="font-mono-brand flex items-center gap-6 text-sm uppercase text-[#F1EEE3]/60">
             <Link href="/" className="hover:text-[#D8FF3E]">Home</Link>
@@ -193,7 +193,7 @@ export default function NewsPage() {
             <Link href="/pricing" className="hover:text-[#D8FF3E]">Pricing</Link>
             <Link href="/login" className="hover:text-[#D8FF3E]">Login</Link>
           </div>
-          <p className="font-mono-brand text-xs text-[#F1EEE3]/40">© {new Date().getFullYear()} UNREALADZ</p>
+          <p className="font-mono-brand text-xs text-[#F1EEE3]/40">© {new Date().getFullYear()} HOMEREEL</p>
         </div>
       </footer>
     </div>

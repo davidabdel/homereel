@@ -3,14 +3,20 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
-// Fall back to the project's public values so existing deployments keep working
-// until NEXT_PUBLIC_SUPABASE_* env vars are set everywhere.
+// No hardcoded fallback to a real project. The old value pointed at a
+// different product's Supabase instance — for a separate company that is the
+// wrong database, not a convenient default. Placeholders keep the client
+// constructible (it throws on empty strings) while resolving to no session.
 export const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL || "https://jkgkuiuycqyzobbiwxpx.supabase.co";
+  process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
 export const SUPABASE_ANON_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImprZ2t1aXV5Y3F5em9iYml3eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyMjQyMjYsImV4cCI6MjA3NDgwMDIyNn0.WkwwTwI-S_pmD-8xb2mL8P2-ezMCSSXDtqsipEbwUvQ";
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "public-anon-key-not-configured";
 
+/**
+ * Legacy flat per-call costs. HomeReel bills per shot from `pricing.ts`
+ * instead — a film is N shots and N billable calls, so a single flat charge
+ * would either eat the difference or overcharge a short film.
+ */
 export const CREDIT_COSTS = { image: 30, video: 70 } as const;
 
 export type RouteAuth = { user: User; supabase: SupabaseClient };
@@ -119,4 +125,59 @@ export async function chargeCredits(
     return false;
   }
   return true;
+}
+
+/* ------------------------------------------------------- film reservations */
+
+type RpcResult = { success: boolean; message?: string; available?: number };
+
+/**
+ * Hold the credits for a whole film before a single shot is submitted.
+ *
+ * Every shot bills at KIE the instant its createTask returns 200, and that
+ * cannot be recalled. So the sequence is always: reserve everything, submit,
+ * then settle the shots that generated and release the ones that didn't.
+ */
+export async function reserveCredits(
+  supabase: SupabaseClient,
+  amount: number,
+  description: string
+): Promise<RpcResult> {
+  const { data, error } = await supabase.rpc("reserve_credits", {
+    p_amount: amount,
+    p_description: description,
+  });
+  if (error) return { success: false, message: error.message };
+  return (data ?? { success: false, message: "No response" }) as RpcResult;
+}
+
+/** A shot generated — turn its held credits into spent ones. */
+export async function settleCredits(
+  supabase: SupabaseClient,
+  amount: number,
+  description: string
+): Promise<RpcResult> {
+  const { data, error } = await supabase.rpc("settle_credits", {
+    p_amount: amount,
+    p_description: description,
+  });
+  if (error) return { success: false, message: error.message };
+  return (data ?? { success: false, message: "No response" }) as RpcResult;
+}
+
+/**
+ * A shot never generated — give the hold back. A failure costs nothing at KIE,
+ * so it must cost the agent nothing.
+ */
+export async function releaseCredits(
+  supabase: SupabaseClient,
+  amount: number,
+  description: string
+): Promise<RpcResult> {
+  const { data, error } = await supabase.rpc("release_credits", {
+    p_amount: amount,
+    p_description: description,
+  });
+  if (error) return { success: false, message: error.message };
+  return (data ?? { success: false, message: "No response" }) as RpcResult;
 }

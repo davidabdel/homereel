@@ -68,15 +68,15 @@ export default function RegisterPage() {
           className="font-display pointer-events-none absolute -left-[6%] top-[8%] whitespace-nowrap leading-none text-transparent"
           style={{ fontSize: "22vw", WebkitTextStroke: "2px rgba(241,238,227,0.12)" }}
         >
-          UNREAL✱
+          HOME✱
         </div>
         <div className="relative mx-auto flex h-full max-w-xl flex-col justify-center gap-6 px-12 py-16">
           <div className="font-mono-brand text-[13px] font-bold uppercase tracking-[0.1em] text-[#D8FF3E]">Create your account</div>
           <h1 className="font-display leading-[0.95]" style={{ fontSize: "clamp(48px,6vw,90px)" }}>
-            JOIN<br />UNREAL<span className="text-[#6E2CF4]">✱</span>ADZ
+            JOIN<br />HOME<span className="text-[#6E2CF4]">✱</span>REEL
           </h1>
           <p className="max-w-sm text-[17px] leading-relaxed text-[#F1EEE3]/80">
-            One product photo in. Hundreds of scroll-stopping UGC ads out. Your first one is free.
+            The photos are already on the listing. Turn them into a film your buyers will actually watch.
           </p>
         </div>
       </div>

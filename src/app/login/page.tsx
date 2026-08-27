@@ -47,15 +47,15 @@ export default function LoginPage() {
           className="font-display pointer-events-none absolute -left-[6%] top-[8%] whitespace-nowrap leading-none text-transparent"
           style={{ fontSize: "22vw", WebkitTextStroke: "2px rgba(241,238,227,0.12)" }}
         >
-          UNREAL✱
+          HOME✱
         </div>
         <div className="relative mx-auto flex h-full max-w-xl flex-col justify-center gap-6 px-12 py-16">
           <div className="font-mono-brand text-[13px] font-bold uppercase tracking-[0.1em] text-[#D8FF3E]">Welcome back</div>
           <h1 className="font-display leading-[0.95]" style={{ fontSize: "clamp(48px,6vw,90px)" }}>
-            ADS THAT<br /><span className="text-[#D8FF3E]">WIN.</span>
+            LISTINGS THAT<br /><span className="text-[#D8FF3E]">MOVE.</span>
           </h1>
           <p className="max-w-sm text-[17px] leading-relaxed text-[#F1EEE3]/80">
-            Turn one product photo and one hook into scroll-stopping UGC video — in minutes.
+            Turn the photos you already have into a listing film — in minutes, with nothing added.
           </p>
         </div>
       </div>

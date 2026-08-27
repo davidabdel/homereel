@@ -26,11 +26,11 @@ const spaceMono = Space_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "UnrealAdz — Make Ads Unignorable",
-  description: "One product photo + one hook = hundreds of scroll-stopping UGC videos. No creators. No shipping. Rendered in minutes, not weeks.",
+  title: "HomeReel — Listing films from photos you already have",
+  description: "Upload the photos from a listing you already have. Every photo becomes a moving shot, joined into one film. Nothing on screen that isn't in the house.",
   icons: {
-    icon: "/Images/logos/favicon-192.png",
-    apple: "/Images/logos/favicon-192.png",
+    icon: "/icon.png",
+    apple: "/icon.png",
   },
 };
 

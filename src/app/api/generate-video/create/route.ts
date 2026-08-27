@@ -1,101 +1,110 @@
 import { NextResponse } from "next/server";
-import { authorizeGeneration, chargeCredits } from "@/lib/api-guard";
+import { getRouteUser, unauthorized, rateLimit, reserveCredits, releaseCredits } from "@/lib/api-guard";
+import { RATES, quoteFilm, type Quality } from "@/lib/pricing";
+import { moveForIndex, submitShot } from "@/lib/film";
 
 export const runtime = "nodejs";
 
-function env(name: string) {
-  return process.env[name];
-}
+type IncomingPhoto = { url: string; withPeople?: boolean };
 
+/**
+ * Submit a whole film: one createTask per photo.
+ *
+ * Order of operations matters and is not negotiable:
+ *   1. reserve every credit the film could cost
+ *   2. submit the shots
+ *   3. release the hold for any shot that never reached KIE
+ *
+ * A shot whose createTask returns 200 has already billed and cannot be
+ * recalled, so nothing here ever retries a shot that came back with a task id.
+ */
 export async function POST(req: Request) {
   try {
-    const gate = await authorizeGeneration("video");
-    if ("error" in gate) return gate.error;
+    const auth = await getRouteUser();
+    if (!auth) return unauthorized();
 
-    const form = await req.formData();
-    const imageUrl = (form.get("imageUrl") as string) || ""; // required
-    const dialogue = (form.get("dialogue") as string) || ""; // optional
-    const aspectRatio = (form.get("aspectRatio") as string) || "16:9";
-    const videoPrompt = (form.get("videoPrompt") as string) || "Short UGC-style product ad video";
-    const optimizedPrompt = (form.get("optimizedPrompt") as string) || ""; // optional: pre-built final prompt
-    const voiceGender = (form.get("voiceGender") as string) || ""; // "Male" | "Female"
-    const voiceAccent = (form.get("voiceAccent") as string) || "";
-
-    const KIE_API_KEY = env("KIE_API_KEY");
-    const KIE_API_BASE = env("KIE_API_BASE") ?? "https://api.kie.ai";
-    // According to KIE API docs, valid model names are "veo3" or "veo3_fast"
-    const envModel = env("KIE_VIDEO_MODEL");
-    console.log("[DEBUG] KIE_VIDEO_MODEL from env:", envModel);
-    const MODEL = envModel ?? "veo3_fast";
-    console.log("[DEBUG] Final MODEL value:", MODEL);
-    const CALLBACK = env("KIE_CALLBACK_URL");
-
-    if (!KIE_API_KEY) {
-      return NextResponse.json({ ok: false, error: "KIE_API_KEY not configured" }, { status: 500 });
+    // Limit whole films per hour, not shots. A twenty-photo film is twenty
+    // calls and would trip a per-shot limiter on its first run.
+    if (!rateLimit(`film:${auth.user.id}`, 12, 60 * 60 * 1000)) {
+      return NextResponse.json(
+        { ok: false, error: "You've started a lot of films in the last hour. Try again shortly." },
+        { status: 429 }
+      );
     }
 
-    const image_size = ["16:9", "9:16", "1:1"].includes(aspectRatio) ? aspectRatio : "16:9";
+    const body = await req.json().catch(() => null);
+    const photos: IncomingPhoto[] = Array.isArray(body?.photos) ? body.photos : [];
+    const quality: Quality = body?.quality === "hd" ? "hd" : "sd";
+    const projectId: string | undefined = body?.projectId;
 
-    // Compose final instruction. If client provided an optimizedPrompt (via OpenAI), use it verbatim.
-    // Otherwise, build from videoPrompt + dialogue as before.
-    let finalPrompt = optimizedPrompt.trim();
-    if (!finalPrompt) {
-      const narration = dialogue
-        ? ` Narration: In a ${voiceGender || "neutral"} voice with a ${voiceAccent || "natural"} accent, say: "${dialogue}".`
-        : "";
-      finalPrompt = `${videoPrompt.trim()}${narration}`.trim();
+    if (photos.length === 0) {
+      return NextResponse.json({ ok: false, error: "No photos supplied" }, { status: 400 });
+    }
+    if (photos.some((p) => typeof p?.url !== "string" || !/^https?:\/\//i.test(p.url))) {
+      return NextResponse.json({ ok: false, error: "Every photo needs a hosted URL" }, { status: 400 });
     }
 
-    const isPublicUrl = /^https?:\/\//i.test(imageUrl);
-    const payload: any = {
-      prompt: finalPrompt,
-      imageUrls: isPublicUrl ? [imageUrl] : [],
-      model: "veo3_fast", // Force the correct model name directly
-      aspectRatio: image_size,
-      // Optional flags recommended by docs
-      enableFallback: true, // Enable fallback to handle potential errors
-      enableTranslation: true,
-    };
-    if (CALLBACK) payload.callBackUrl = CALLBACK;
+    const familyRooms = photos.filter((p) => p.withPeople).length;
+    const quote = quoteFilm(photos.length, quality, familyRooms);
 
-    try {
-      console.debug("[KIE][video] generate payload", {
-        ...payload,
-        imageUrls: payload.imageUrls && payload.imageUrls.length ? ["<redacted>"] : [],
-      });
-      console.log("[DEBUG] Raw payload model value:", payload.model);
-      console.log("[DEBUG] Full payload:", JSON.stringify(payload, null, 2));
-    } catch (e) {
-      console.error("[DEBUG] Error logging payload:", e);
+    // 1. hold the credits for the whole film up front
+    const held = await reserveCredits(
+      auth.supabase,
+      quote.credits,
+      `Film reservation — ${quote.shots} ${quality.toUpperCase()} shots`
+    );
+    if (!held.success) {
+      return NextResponse.json(
+        { ok: false, error: held.message || "Insufficient credits", required: quote.credits, available: held.available },
+        { status: 402 }
+      );
     }
 
-    const createRes = await fetch(`${KIE_API_BASE}/api/v1/veo/generate`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${KIE_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+    // 2. submit. Each shot's own rate is what gets released if it never lands.
+    const perShot = RATES.shot[quality];
+    const callbackUrl = process.env.KIE_CALLBACK_URL;
+    const results = await Promise.all(
+      photos.map(async (photo, i) => {
+        const withPeople = Boolean(photo.withPeople);
+        const move = moveForIndex(i);
+        const r = await submitShot({ imageUrl: photo.url, quality, move, withPeople, callbackUrl });
+        return {
+          position: i,
+          sourceUrl: photo.url,
+          withPeople,
+          move,
+          creditsHeld: perShot + (withPeople ? RATES.familyRoom : 0),
+          ...(r.ok
+            ? { taskId: r.taskId, state: "generating" as const }
+            : { state: "fail" as const, failMsg: r.error }),
+        };
+      })
+    );
+
+    // 3. nothing was billed for shots that never reached KIE — give those back
+    const unsubmitted = results.filter((s) => s.state === "fail");
+    const refund = unsubmitted.reduce((n, s) => n + s.creditsHeld, 0);
+    if (refund > 0) {
+      await releaseCredits(auth.supabase, refund, `${unsubmitted.length} shot(s) not submitted`);
+    }
+
+    const submitted = results.filter((s) => s.state !== "fail");
+    if (submitted.length === 0) {
+      const firstReason = unsubmitted.find((s) => "failMsg" in s && s.failMsg);
+      const reason =
+        firstReason && "failMsg" in firstReason ? firstReason.failMsg : "No shots could be submitted";
+      return NextResponse.json({ ok: false, error: reason, shots: results }, { status: 502 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      projectId,
+      quality,
+      creditsHeld: quote.credits - refund,
+      shots: results,
     });
-    const createJson = await createRes.json().catch(() => ({}));
-    try {
-      console.debug("[KIE][video] generate response", { status: createRes.status, ok: createRes.ok, body: createJson });
-    } catch {}
-    if (!createRes.ok || createJson?.code !== 200) {
-      const sanitized = {
-        model: payload.model,
-        hasCallback: Boolean(payload.callBackUrl),
-        prompt: payload.prompt,
-        aspectRatio: payload.aspectRatio,
-        image_urls_present: Array.isArray(payload.imageUrls) && payload.imageUrls.length > 0,
-      };
-      return NextResponse.json({ ok: false, error: `Create task failed: ${createJson?.msg || createRes.status}`, raw: createJson, sent: sanitized }, { status: 502 });
-    }
-
-    const taskId: string | undefined = createJson?.data?.taskId;
-    if (!taskId) return NextResponse.json({ ok: false, error: "Missing taskId in response", raw: createJson }, { status: 502 });
-
-    await chargeCredits(gate.auth.supabase, gate.cost, "Video generation");
-
-    return NextResponse.json({ ok: true, taskId });
-  } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message || "Unknown error" }, { status: 500 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

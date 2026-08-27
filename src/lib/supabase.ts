@@ -1,10 +1,25 @@
 import { createBrowserClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 
-// Prefer env config; fall back to the project's public values so existing
-// deployments keep working until NEXT_PUBLIC_SUPABASE_* is set everywhere.
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://jkgkuiuycqyzobbiwxpx.supabase.co'
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImprZ2t1aXV5Y3F5em9iYml3eHB4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyMjQyMjYsImV4cCI6MjA3NDgwMDIyNn0.WkwwTwI-S_pmD-8xb2mL8P2-ezMCSSXDtqsipEbwUvQ'
+/**
+ * Supabase throws on construction when the URL or key is missing, which took
+ * the entire app down — public pages included — rather than just the
+ * signed-in parts.
+ *
+ * When nothing is configured (demo mode, or a fresh checkout) we hand it
+ * syntactically valid placeholders instead. Construction succeeds, no session
+ * is ever found, and the public site and demo walk-through keep working. The
+ * types stay exactly as they were, so nothing downstream has to change.
+ */
+const PLACEHOLDER_URL = 'https://placeholder.supabase.co'
+const PLACEHOLDER_KEY = 'public-anon-key-not-configured'
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || PLACEHOLDER_URL
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || PLACEHOLDER_KEY
+
+/** True once real Supabase credentials are present. */
+export const supabaseConfigured =
+  supabaseUrl !== PLACEHOLDER_URL && supabaseAnonKey !== PLACEHOLDER_KEY
 
 // Create a single supabase client for the entire application
 export const createSupabaseClient = () => {

@@ -11,7 +11,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const article = getArticleBySlug(slug);
   if (!article) return {};
   return {
-    title: `${article.title} | UnrealAdz News`,
+    title: `${article.title} | HomeReel News`,
     description: article.excerpt,
   };
 }
@@ -65,7 +65,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-4">
           <div className="flex items-center gap-6">
             <Link href="/" className="font-display flex items-baseline gap-0.5 text-[24px]">
-              UNREAL<span className="text-[#6E2CF4]">✱</span>ADZ
+              HOME<span className="text-[#6E2CF4]">✱</span>REEL
             </Link>
             <nav className="hidden items-center gap-2 text-sm font-bold uppercase md:flex">
               <Link href="/" className="hover:text-[#6E2CF4]">Home</Link>
@@ -168,13 +168,13 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
                 GENERATE SCROLL-STOPPING ADS IN MINUTES
               </h2>
               <p className="mx-auto mt-2 max-w-xl text-sm text-[#F1EEE3]/80">
-                One product image. Dozens of UGC-style video ad variants. No team required.
+                The photos already on your listing, turned into a film buyers will actually watch.
               </p>
               <Link
                 href="/register"
                 className="mt-5 inline-block border-[3px] border-[#131118] bg-[#D8FF3E] px-7 py-2.5 text-sm font-extrabold uppercase text-[#131118] shadow-[6px_6px_0_#131118] transition-colors hover:bg-[#F1EEE3]"
               >
-                Try UnrealAdz Free →
+                Try HomeReel Free →
               </Link>
             </div>
           </main>
@@ -213,7 +213,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
       <footer className="border-t-[3px] border-[#131118] bg-[#131118] px-6 py-10 text-[#F1EEE3]">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 md:flex-row">
           <Link href="/" className="font-display text-[22px]">
-            UNREAL<span className="text-[#6E2CF4]">✱</span>ADZ
+            HOME<span className="text-[#6E2CF4]">✱</span>REEL
           </Link>
           <div className="font-mono-brand flex items-center gap-6 text-sm uppercase text-[#F1EEE3]/60">
             <Link href="/" className="hover:text-[#D8FF3E]">Home</Link>
@@ -221,7 +221,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
             <Link href="/pricing" className="hover:text-[#D8FF3E]">Pricing</Link>
             <Link href="/login" className="hover:text-[#D8FF3E]">Login</Link>
           </div>
-          <p className="font-mono-brand text-xs text-[#F1EEE3]/40">© {new Date().getFullYear()} UNREALADZ</p>
+          <p className="font-mono-brand text-xs text-[#F1EEE3]/40">© {new Date().getFullYear()} HOMEREEL</p>
         </div>
       </footer>
     </div>
