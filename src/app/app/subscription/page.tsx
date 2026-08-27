@@ -460,7 +460,7 @@ export default function SubscriptionPage() {
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <span className="text-[#131118]/70">Available credits</span>
-                  <span className="text-2xl font-medium">{credits.balance}</span>
+                  <span className="text-2xl font-medium">{credits.spendable}</span>
                 </div>
                 
                 <div className="mt-4">

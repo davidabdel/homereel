@@ -44,7 +44,7 @@ export default function AppLayout({ children }: PropsWithChildren) {
       try {
         const result = await getUserCredits(user.id);
         if (result.success && result.credits) {
-          setCredits(result.credits.balance);
+          setCredits(result.credits.spendable);
         } else {
           // If no credits found, display 0 (they'll be created when visiting subscription page)
           setCredits(0);

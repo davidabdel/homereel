@@ -27,7 +27,17 @@ export type UserSubscription = {
 export type UserCredits = {
   id: string;
   user_id: string;
+  /** Pre-wallet column. Kept for compatibility — don't show it to anyone. */
   balance: number;
+  /** Monthly allowance. Expires at `monthly_expires_at`. */
+  monthly_balance?: number;
+  monthly_expires_at?: string | null;
+  /** Purchased credits. Valid 12 months, spent after the monthly allowance. */
+  topup_balance?: number;
+  /** Held for a film that's still rendering. */
+  reserved?: number;
+  /** What the agent can actually spend right now. This is the number to show. */
+  spendable: number;
   last_refill_date?: string;
 };
 
@@ -153,8 +163,14 @@ export async function getUserSubscription(userId: string) {
   }
 }
 
+/** The monthly allowance only counts while it hasn't expired. */
+function isMonthlyLive(row: { monthly_expires_at?: string | null }) {
+  if (!row.monthly_expires_at) return true;
+  return new Date(row.monthly_expires_at).getTime() > Date.now();
+}
+
 /**
- * Get the current user's credit balance
+ * Get the current user's credit balance.
  */
 export async function getUserCredits(userId: string) {
   const supabase = createSupabaseBrowserClient();
@@ -171,8 +187,23 @@ export async function getUserCredits(userId: string) {
       throw error;
     }
     
-    // If no credits found, return null instead of throwing an error
-    return { success: true, credits: data || null };
+    // The wallet has two buckets — the monthly allowance (which expires) and
+    // purchased top-ups (which don't) — minus anything held for a film that's
+    // still rendering. `balance` is the pre-wallet column and is no longer the
+    // number to show anyone; `spendable` is.
+    const credits = data
+      ? {
+          ...data,
+          spendable: Math.max(
+            0,
+            (isMonthlyLive(data) ? data.monthly_balance ?? 0 : 0) +
+              (data.topup_balance ?? 0) -
+              (data.reserved ?? 0)
+          ),
+        }
+      : null;
+
+    return { success: true, credits };
   } catch (error) {
     console.error('Error getting user credits:', error);
     return { success: false, error };
