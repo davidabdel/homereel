@@ -30,6 +30,8 @@ if (key.startsWith("sk_live_")) {
   if (process.env.HOMEREEL_ALLOW_LIVE !== "1") process.exit(1);
 }
 
+const TAX_CODE = "txcd_10103000"; // SaaS — required by Stripe Managed Payments
+
 const stripe = new Stripe(key, { apiVersion: "2025-10-29.clover" as Stripe.LatestApiVersion });
 
 type Spec = {
@@ -92,6 +94,11 @@ async function main() {
       product = await stripe.products.create({
         name: spec.name,
         description: spec.description,
+        // Managed Payments is on by default and refuses to create a checkout
+        // session for a product with no tax code — the error surfaces at
+        // checkout, not here, so without this every top-up purchase fails.
+        // txcd_10103000 = Software as a Service (business use).
+        tax_code: TAX_CODE,
         // The webhook reads these to decide how many credits to grant and into
         // which bucket, so the amounts never have to be duplicated in code.
         metadata: {

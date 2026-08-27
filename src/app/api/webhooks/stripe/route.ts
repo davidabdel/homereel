@@ -31,6 +31,43 @@ function iso(unixSeconds: number | null | undefined): string | null {
   return unixSeconds ? new Date(unixSeconds * 1000).toISOString() : null;
 }
 
+/**
+ * How long this billing period runs, so the monthly allowance expires when the
+ * next invoice lands rather than on a hardcoded 31 days. Falls back to 31 if
+ * Stripe didn't give us a period.
+ */
+function daysBetween(start?: number | null, end?: number | null): number {
+  if (!start || !end || end <= start) return 31;
+  return Math.max(1, Math.round((end - start) / 86400));
+}
+
+/* Stripe relocated several invoice fields. These read the current shape first
+ * and fall back to the legacy one, so the webhook survives an API version bump
+ * in either direction instead of silently doing nothing. */
+
+function subscriptionIdOf(invoice: any, line: any): string | null {
+  const candidates = [
+    invoice?.parent?.subscription_details?.subscription,   // current
+    line?.parent?.subscription_item_details?.subscription, // current, per line
+    invoice?.subscription,                                 // legacy
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c) return c;
+    if (c?.id) return c.id as string;
+  }
+  return null;
+}
+
+function priceIdOf(line: any): string | undefined {
+  const candidates = [
+    line?.pricing?.price_details?.price, // current
+    line?.price?.id,                     // legacy
+    line?.plan?.id,                      // older still
+  ];
+  for (const c of candidates) if (typeof c === "string" && c) return c;
+  return undefined;
+}
+
 type PlanRow = { id: string; name: string; credits_per_month: number };
 
 async function planByPrice(admin: SupabaseClient, priceId: string | undefined): Promise<PlanRow> {
@@ -105,6 +142,39 @@ export async function POST(req: Request) {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
+
+        // A top-up is a one-off payment, not a subscription. How many credits
+        // it's worth is carried in the price's own metadata, so the amounts
+        // live in exactly one place — Stripe — instead of being duplicated
+        // here and drifting the first time a pack changes.
+        if (session.mode === "payment") {
+          const userId =
+            session.client_reference_id ||
+            (await userIdByEmail(admin, session.customer_details?.email || session.customer_email));
+          if (!userId) throw new Error("Could not resolve Supabase user for top-up");
+
+          const items = await stripe.checkout.sessions.listLineItems(session.id, {
+            expand: ["data.price.product"],
+          });
+          let credits = 0;
+          for (const li of items.data) {
+            const price = li.price as Stripe.Price | null;
+            const product = price?.product as Stripe.Product | undefined;
+            const per = Number(price?.metadata?.credits ?? product?.metadata?.credits ?? 0);
+            if (per > 0) credits += per * (li.quantity ?? 1);
+          }
+          if (credits <= 0) {
+            throw new Error(`Top-up session ${session.id} carried no credits metadata`);
+          }
+
+          const { error: topupErr } = await admin.rpc("grant_topup_credits", {
+            p_user: userId,
+            p_credits: credits,
+          });
+          if (topupErr) throw topupErr;
+          break;
+        }
+
         if (session.mode !== "subscription" || !session.subscription) break;
 
         const userId =
@@ -137,11 +207,21 @@ export async function POST(req: Request) {
 
       case "invoice.paid": {
         const invoice = event.data.object as any;
-        const subId: string | null = typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription?.id || null;
-        if (!subId) break; // not a subscription invoice
-        const customerId: string | null = typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id || null;
         const line = invoice.lines?.data?.[0];
-        const priceId: string | undefined = line?.price?.id;
+
+        // Stripe moved both of these. On current API versions
+        // `invoice.subscription` and `line.price` no longer exist — they live
+        // under `invoice.parent.subscription_details` and
+        // `line.pricing.price_details`. Reading only the old shape meant a
+        // paid invoice found no subscription, hit the `break` below, and
+        // returned 200: the member was charged, granted nothing, and Stripe
+        // never retried because we told it everything was fine. Read the new
+        // shape first and keep the old one as a fallback.
+        const subId: string | null = subscriptionIdOf(invoice, line);
+        if (!subId) break; // genuinely not a subscription invoice
+        const customerId: string | null =
+          typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id || null;
+        const priceId: string | undefined = priceIdOf(line);
         const plan = await planByPrice(admin, priceId);
 
         // Resolve the user: existing row by sub id, then by customer id, then email.
@@ -175,11 +255,18 @@ export async function POST(req: Request) {
           stripe_customer_id: customerId,
         });
 
-        // Grant this cycle's credits.
-        const { error: creditErr } = await admin.rpc("admin_add_credits", {
-          p_user_id: userId,
-          p_amount: plan.credits_per_month,
-          p_description: `Stripe: ${plan.name} plan credits`,
+        // Grant this cycle's credits into the monthly bucket.
+        //
+        // grant_monthly_credits REPLACES the allowance and restarts its clock
+        // rather than adding to it — the point of the perishable bucket is
+        // that unused credits don't accumulate. The old admin_add_credits
+        // wrote to user_credits.balance, which the wallet no longer reads, so
+        // members would have paid and seen nothing.
+        const periodDays = daysBetween(line?.period?.start, line?.period?.end);
+        const { error: creditErr } = await admin.rpc("grant_monthly_credits", {
+          p_user: userId,
+          p_credits: plan.credits_per_month,
+          p_days: periodDays,
         });
         if (creditErr) throw creditErr;
         break;
