@@ -9,8 +9,8 @@ import { getUserCredits } from "@/lib/subscription-service";
 
 const nav = [
   { href: "/app", label: "Home" },
-  { href: "/app/create", label: "New Film" },
-  { href: "/app/projects", label: "My Films" },
+  { href: "/app/create", label: "New Reel" },
+  { href: "/app/projects", label: "My Reels" },
   { href: "/app/subscription", label: "Credits" },
   { href: "/app/profile", label: "Profile" },
 ];

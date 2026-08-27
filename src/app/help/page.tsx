@@ -15,7 +15,7 @@ export default function HelpPage() {
           <div>
             <div className="font-semibold">Getting started</div>
             <ul className="mt-2 space-y-1 text-sm text-[#131118]/80">
-              <li>• Create your first ad</li>
+              <li>• Create your first reel</li>
               <li>• Persona generation</li>
               <li>• Dialogue best practices</li>
             </ul>

@@ -93,9 +93,9 @@ export default function DashboardPage() {
             <div className="mb-4 h-16 w-16 rounded-2xl border-[3px] border-[#131118] bg-[#131118]/5" />
             <h3 className="text-xl font-semibold">No projects yet</h3>
             <p className="mt-2 max-w-sm text-sm text-[#131118]/70">
-              Create your first ad to see it appear here. Your drafts and renders will show up with status.
+              Create your first reel to see it appear here. Your drafts and renders will show up with status.
             </p>
-            <Link href="/app/create" className="mt-6 btn-primary">Create your first ad</Link>
+            <Link href="/app/create" className="mt-6 btn-primary">Create your first reel</Link>
           </div>
         )}
       </section>
