@@ -152,7 +152,7 @@ export default function LandingPage() {
 
           <div className="anim-rise font-mono-brand mb-[22px] flex items-center gap-3 text-[15px] font-bold tracking-[0.08em]">
             <span className="inline-block h-3 w-3 border-2 border-[#131118] bg-[#D8FF3E]" />
-            THE LISTING PHOTOS YOU ALREADY HAVE — TURNED INTO FILM
+            THE LISTING PHOTOS YOU ALREADY HAVE — TURNED INTO A REEL
           </div>
           <h1 className="font-display anim-rise m-0 leading-[0.92]" style={{ fontSize: "clamp(64px, 12vw, 200px)" }}>
             <span className="block">MAKE LISTINGS</span>
@@ -168,14 +168,14 @@ export default function LandingPage() {
           <div className="anim-rise my-[42px] mb-[60px] flex flex-wrap items-end gap-10">
             <p className="m-0 max-w-[560px] text-[21px] font-medium leading-[1.45]">
               Upload the photos from a listing you already have. Every photo becomes a moving shot, joined into
-              one film. No camera. No crew. No site visit. And nothing on screen that isn&apos;t in the house.
+              one reel. No camera. No crew. No site visit. And nothing on screen that isn&apos;t in the house.
             </p>
             <div className="flex flex-wrap gap-[18px]">
               <Link
                 href="/register"
                 className="inline-block border-[3px] border-[#131118] bg-[#131118] px-[34px] py-[18px] text-[18px] font-extrabold uppercase tracking-[0.03em] text-[#F1EEE3] shadow-[6px_6px_0_rgba(19,17,24,0.25)] transition-colors hover:bg-[#6E2CF4]"
               >
-                Make my first film
+                Make my first reel
               </Link>
               <Link
                 href="#showcase"
@@ -205,8 +205,8 @@ export default function LandingPage() {
 
         <div className="relative overflow-hidden border-t-[3px] border-[#131118] bg-[#131118] py-3.5 text-[#D8FF3E]">
           <div className="marquee-track font-display text-[26px] uppercase tracking-[0.04em]">
-            <span className="pr-10">TEN PHOTOS IN ✱ ONE FILM OUT ✱ NOTHING ADDED ✱ NO CAMERA ✱ NO SITE VISIT ✱&nbsp;</span>
-            <span className="pr-10">TEN PHOTOS IN ✱ ONE FILM OUT ✱ NOTHING ADDED ✱ NO CAMERA ✱ NO SITE VISIT ✱&nbsp;</span>
+            <span className="pr-10">TEN PHOTOS IN ✱ ONE REEL OUT ✱ NOTHING ADDED ✱ NO CAMERA ✱ NO SITE VISIT ✱&nbsp;</span>
+            <span className="pr-10">TEN PHOTOS IN ✱ ONE REEL OUT ✱ NOTHING ADDED ✱ NO CAMERA ✱ NO SITE VISIT ✱&nbsp;</span>
           </div>
         </div>
       </section>
@@ -264,11 +264,11 @@ export default function LandingPage() {
           },
           {
             big: "MINUTES, NOT WEEKS",
-            copy: "Upload the folder, choose your quality, hit generate. The film is rendering before you've finished your coffee.",
+            copy: "Upload the folder, choose your quality, hit generate. The reel is rendering before you've finished your coffee.",
           },
           {
             big: "EVERY LISTING. NOT JUST THE TROPHIES.",
-            copy: "When a film costs a handful of credits, you stop deciding which property deserves one. The three-week-old listing gets a fresh cut too.",
+            copy: "When a reel costs a handful of credits, you stop deciding which property deserves one. The three-week-old listing gets a fresh cut too.",
           },
         ].map((b) => (
           <div
@@ -284,11 +284,11 @@ export default function LandingPage() {
       {/* ============ HOW IT WORKS ============ */}
       <section id="how" className="border-b-[3px] border-[#131118] bg-[#6E2CF4] px-[4vw] pb-[100px] pt-[90px] text-[#F1EEE3]">
         <h2 className="font-display m-0 mb-[70px] leading-[0.95]" style={{ fontSize: "clamp(44px, 7vw, 110px)" }}>
-          FOUR STEPS.<br />ONE FILM.
+          FOUR STEPS.<br />ONE REEL.
         </h2>
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            { n: "01", t: "Upload the photos", c: "Drag in the folder from the listing. One photo becomes one shot, so the count is the film." },
+            { n: "01", t: "Upload the photos", c: "Drag in the folder from the listing. One photo becomes one shot, so the count is the reel." },
             { n: "02", t: "Standard or HD", c: "Two buttons. The credit total updates before you commit to anything." },
             { n: "03", t: "Add a family", c: "Choose which living spaces get people in them. Bathrooms and exteriors are never offered." },
             { n: "04", t: "Generate and approve", c: "Every shot comes back beside the photo it came from. You approve each one, or reshoot it." },
@@ -309,7 +309,7 @@ export default function LandingPage() {
           Facts about the product, not claims about the market. There is no
           verified figure for video lifting enquiry or price — so we don't print one. */}
       <section className="grid grid-cols-1 gap-[50px] border-b-[3px] border-[#131118] bg-[#131118] px-[4vw] py-[90px] text-[#F1EEE3] sm:grid-cols-3">
-        <Stat target={10} suffix="" decimals={0} label="PHOTOS = ONE FILM" />
+        <Stat target={10} suffix="" decimals={0} label="PHOTOS = ONE REEL" />
         <Stat target={1000} suffix="" decimals={0} label="CREDITS EVERY MONTH" />
         <Stat text="NOTHING" label="ADDED TO YOUR LISTING" />
       </section>
@@ -396,7 +396,7 @@ export default function LandingPage() {
           href="/register"
           className="inline-block border-[3px] border-[#D8FF3E] bg-[#D8FF3E] px-[46px] py-[22px] text-[20px] font-extrabold uppercase tracking-[0.03em] text-[#131118] shadow-[8px_8px_0_#6E2CF4] transition-colors hover:border-[#F1EEE3] hover:bg-[#F1EEE3]"
         >
-          Make your first film
+          Make your first reel
         </Link>
         <div className="font-mono-brand mt-[22px] text-[13px] text-[#F1EEE3]/60">
           $19 A MONTH ✱ GST INCLUSIVE ✱ CANCEL ANY TIME

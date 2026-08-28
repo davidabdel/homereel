@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     // calls and would trip a per-shot limiter on its first run.
     if (!rateLimit(`film:${auth.user.id}`, 12, 60 * 60 * 1000)) {
       return NextResponse.json(
-        { ok: false, error: "You've started a lot of films in the last hour. Try again shortly." },
+        { ok: false, error: "You've started a lot of reels in the last hour. Try again shortly." },
         { status: 429 }
       );
     }
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     const held = await reserveCredits(
       auth.supabase,
       quote.credits,
-      `Film reservation — ${quote.shots} ${quality.toUpperCase()} shots`
+      `Reel reservation — ${quote.shots} ${quality.toUpperCase()} shots`
     );
     if (!held.success) {
       return NextResponse.json(

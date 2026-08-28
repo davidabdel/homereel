@@ -1,6 +1,9 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useAuth } from "@/context/AuthContext";
+import { getUserCredits } from "@/lib/subscription-service";
 import { RATES, quoteFilm, type Quality } from "@/lib/pricing";
 
 const DEMO = process.env.NEXT_PUBLIC_DEMO === "1";
@@ -22,7 +25,7 @@ type PeopleRoom = (typeof PEOPLE_ROOMS)[number];
  * Below MIN_EDGE a photo is genuinely unusable — it would be soft even at
  * Standard. Between MIN_EDGE and HD_MIN_EDGE it makes a fine 768p reel but
  * would have to be upscaled for 1080p, which looks soft on a big screen. So
- * those are accepted and the film is held to Standard rather than rejected:
+ * those are accepted and the reel is held to Standard rather than rejected:
  * a portal export at 816px is a normal thing for an agent to have.
  */
 const MIN_EDGE = 600;
@@ -111,10 +114,21 @@ export default function CreateFilmPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reelUrl, setReelUrl] = useState<string | null>(null);
+  const [balance, setBalance] = useState<number | null>(null);
+  const [needCredits, setNeedCredits] = useState<{ required: number; available: number } | null>(null);
+  const { user } = useAuth();
   const [building, setBuilding] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const shotsRef = useRef<Shot[] | null>(null);
   shotsRef.current = shots;
+
+  useEffect(() => {
+    if (DEMO) { setBalance(1000); return; }
+    if (!user) return;
+    getUserCredits(user.id).then((r) =>
+      setBalance(r.success && r.credits ? r.credits.spendable : 0)
+    );
+  }, [user]);
 
   const softPhotos = photos.filter((p) => !p.hdCapable);
   const canDoHd = photos.length > 0 && softPhotos.length === 0;
@@ -210,7 +224,16 @@ export default function CreateFilmPage() {
         body: JSON.stringify({ photos: uploaded, quality: effectiveQuality }),
       });
       const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Could not start the film");
+      if (res.status === 402) {
+        // Out of credits is the one failure with an obvious next action, so
+        // it gets its own panel and a way to fix it rather than a red banner.
+        setNeedCredits({
+          required: json.required ?? quote.credits,
+          available: json.available ?? 0,
+        });
+        return;
+      }
+      if (!json.ok) throw new Error(json.error || "Could not start the reel");
 
       const initial: Shot[] = json.shots.map(
         (s: {
@@ -345,7 +368,7 @@ export default function CreateFilmPage() {
     setBuilding(true);
     setError(null);
     try {
-      const res = await fetch("/api/film/assemble", {
+      const res = await fetch("/api/reel/assemble", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ shots: approved.map((s) => s.resultUrl) }),
@@ -365,6 +388,20 @@ export default function CreateFilmPage() {
   return (
     <div className="mx-auto max-w-[1200px] px-6 py-10">
       {/* progress */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="font-mono-brand text-[13px] font-bold tracking-[0.1em] text-[#131118]/60">
+          NEW REEL
+        </div>
+        <Link
+          href="/app/subscription"
+          className={`font-mono-brand border-[3px] border-[#131118] px-4 py-2 text-[13px] font-bold transition-colors ${
+            balance === 0 ? "bg-[#6E2CF4] text-[#F1EEE3]" : "bg-[#D8FF3E]"
+          }`}
+        >
+          {balance === null ? "BALANCE …" : `${balance.toLocaleString()} CREDITS`}
+          {balance === 0 ? " — BUY SOME" : ""}
+        </Link>
+      </div>
       <div className="mb-10 flex flex-wrap gap-2.5">
         {["Photos", "Quality", "People", "Generate", "Approve"].map((label, i) => {
           const n = i + 1;
@@ -383,6 +420,34 @@ export default function CreateFilmPage() {
         })}
       </div>
 
+      {needCredits && (
+        <div className="mb-7 border-[3px] border-[#131118] bg-[#D8FF3E] px-6 py-6 shadow-[8px_8px_0_#131118]">
+          <div className="font-display text-[30px] leading-none">
+            {needCredits.available === 0 ? "You have no credits yet." : "Not enough credits."}
+          </div>
+          <p className="m-0 mt-3 max-w-[640px] text-[16px] font-medium leading-[1.5]">
+            This reel needs <strong>{needCredits.required.toLocaleString()} credits</strong> and you have{" "}
+            <strong>{needCredits.available.toLocaleString()}</strong>. Nothing was generated and nothing was
+            charged — your photos are still here, so you can pick up exactly where you left off.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-4">
+            <Link
+              href="/app/subscription"
+              className="inline-block border-[3px] border-[#131118] bg-[#131118] px-7 py-3.5 text-[15px] font-extrabold uppercase text-[#F1EEE3] transition-colors hover:bg-[#6E2CF4]"
+            >
+              Get credits
+            </Link>
+            <button
+              type="button"
+              onClick={() => setNeedCredits(null)}
+              className="inline-block border-[3px] border-[#131118] px-7 py-3.5 text-[15px] font-extrabold uppercase transition-colors hover:bg-[#131118] hover:text-[#F1EEE3]"
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="mb-7 border-[3px] border-[#131118] bg-[#6E2CF4] px-5 py-4 text-[16px] font-bold text-[#F1EEE3]">
           {error}
@@ -395,7 +460,7 @@ export default function CreateFilmPage() {
           <StepHead
             n="01"
             title="Upload the photos"
-            sub="The ones from the listing you already have. One photo becomes one shot, so the number you drop in is the length of the film. Nothing gets scraped and nothing gets added."
+            sub="The ones from the listing you already have. One photo becomes one shot, so the number you drop in is the length of the reel. Nothing gets scraped and nothing gets added."
           />
           <div
             onDragOver={(e) => e.preventDefault()}
@@ -623,8 +688,16 @@ export default function CreateFilmPage() {
           </div>
           <div className="mt-8 flex justify-between">
             <Btn tone="ghost" onClick={() => setStep(3)}>Back</Btn>
-            <Btn tone="lime" onClick={() => void generate()} disabled={busy || quote.shots === 0}>
-              {busy ? "Starting…" : `Generate ${quote.shots} shots`}
+            <Btn
+              tone="lime"
+              onClick={() => void generate()}
+              disabled={busy || quote.shots === 0 || (balance !== null && balance < quote.credits)}
+            >
+              {busy
+                ? "Starting…"
+                : balance !== null && balance < quote.credits
+                  ? `Need ${(quote.credits - balance).toLocaleString()} more credits`
+                  : `Generate ${quote.shots} shots`}
             </Btn>
           </div>
         </Panel>
@@ -636,7 +709,7 @@ export default function CreateFilmPage() {
           <StepHead
             n="05"
             title="Check every shot"
-            sub="Each shot sits beside the photograph it came from. If a wall moved, a window changed shape or a room grew, reject it and shoot it again — only what you approve goes in the film."
+            sub="Each shot sits beside the photograph it came from. If a wall moved, a window changed shape or a room grew, reject it and shoot it again — only what you approve goes in the reel."
           />
           <div className="flex flex-col gap-6">
             {shots.map((s, i) => (

@@ -168,7 +168,7 @@ export default async function ArticlePage({ params }: { params: Promise<{ slug: 
                 GENERATE SCROLL-STOPPING ADS IN MINUTES
               </h2>
               <p className="mx-auto mt-2 max-w-xl text-sm text-[#F1EEE3]/80">
-                The photos already on your listing, turned into a film buyers will actually watch.
+                The photos already on your listing, turned into a reel buyers will actually watch.
               </p>
               <Link
                 href="/register"

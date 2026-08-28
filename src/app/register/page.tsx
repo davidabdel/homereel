@@ -76,7 +76,7 @@ export default function RegisterPage() {
             JOIN<br />HOME<span className="text-[#6E2CF4]">✱</span>REEL
           </h1>
           <p className="max-w-sm text-[17px] leading-relaxed text-[#F1EEE3]/80">
-            The photos are already on the listing. Turn them into a film your buyers will actually watch.
+            The photos are already on the listing. Turn them into a reel your buyers will actually watch.
           </p>
         </div>
       </div>

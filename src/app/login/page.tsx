@@ -55,7 +55,7 @@ export default function LoginPage() {
             LISTINGS THAT<br /><span className="text-[#D8FF3E]">MOVE.</span>
           </h1>
           <p className="max-w-sm text-[17px] leading-relaxed text-[#F1EEE3]/80">
-            Turn the photos you already have into a listing film — in minutes, with nothing added.
+            Turn the photos you already have into a listing reel — in minutes, with nothing added.
           </p>
         </div>
       </div>

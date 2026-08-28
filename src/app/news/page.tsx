@@ -170,7 +170,7 @@ export default function NewsPage() {
             TURN YOUR PRODUCT INTO SCROLL-STOPPING ADS — IN MINUTES
           </h2>
           <p className="mx-auto mt-3 max-w-xl text-[#F1EEE3]/80">
-            HomeReel turns the photos already on your listing into a film. No camera, no crew, nothing added.
+            HomeReel turns the photos already on your listing into a reel. No camera, no crew, nothing added.
           </p>
           <Link
             href="/register"
