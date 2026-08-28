@@ -86,7 +86,7 @@ export default function LandingPage() {
       {/* ============ HERO ============ */}
       <section
         id="top"
-        className="relative flex min-h-[94vh] flex-col justify-end overflow-hidden border-b-[3px] border-[#131118] pt-[90px]"
+        className="relative flex min-h-[94vh] flex-col justify-end overflow-hidden border-b-[3px] border-[#131118] pt-[118px]"
       >
         <div
           className="font-display pointer-events-none absolute left-[-6%] top-[6%] whitespace-nowrap leading-none text-transparent"
@@ -100,6 +100,55 @@ export default function LandingPage() {
         </div>
 
         <div className="relative max-w-[1500px] px-[4vw]">
+          {/* The whole proposition as a picture: their photos, then the reel
+              those exact photos became. Both real — the stills are source
+              frames from the Denham Court listing and the video is the reel
+              built from them. In the flow, not absolutely positioned, so the
+              headline always sits below it rather than colliding at some
+              viewport heights. */}
+          <div className="anim-rise mb-[46px] hidden items-start gap-6 lg:flex">
+            <div className="relative h-[232px] w-[228px] shrink-0">
+              {[
+                { src: "/hero/photo3.jpg", rot: -9, x: 0, y: 26, z: 1 },
+                { src: "/hero/photo2.jpg", rot: 5, x: 22, y: 13, z: 2 },
+                { src: "/hero/photo1.jpg", rot: -2, x: 8, y: 0, z: 3 },
+              ].map((ph) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={ph.src}
+                  src={ph.src}
+                  alt=""
+                  className="absolute w-[200px] border-[3px] border-[#131118] bg-[#F1EEE3] object-cover shadow-[6px_6px_0_rgba(19,17,24,0.3)]"
+                  style={{ transform: `rotate(${ph.rot}deg)`, left: ph.x, top: ph.y, zIndex: ph.z }}
+                />
+              ))}
+              <div className="font-mono-brand absolute bottom-0 left-2 z-10 border-2 border-[#131118] bg-[#D8FF3E] px-2.5 py-[3px] text-[11px] font-bold">
+                THEIR PHOTOS
+              </div>
+            </div>
+
+            <svg width="66" height="34" viewBox="0 0 66 34" aria-hidden className="mt-[74px] shrink-0">
+              <path d="M2 17h44M40 5l16 12-16 12" fill="none" stroke="#131118"
+                    strokeWidth="5" strokeLinecap="square" strokeLinejoin="miter" />
+            </svg>
+
+            <div className="relative shrink-0">
+              <video
+                src="/hero/culverston.mp4"
+                poster="/hero/culverston.jpg"
+                preload="metadata"
+                autoPlay
+                muted
+                loop
+                playsInline
+                className="h-[232px] w-[412px] border-[3px] border-[#131118] object-cover shadow-[8px_8px_0_#131118]"
+              />
+              <div className="font-mono-brand absolute bottom-2.5 right-2.5 border-2 border-[#131118] bg-[#6E2CF4] px-2.5 py-[3px] text-[11px] font-bold text-[#F1EEE3]">
+                ONE REEL
+              </div>
+            </div>
+          </div>
+
           <div className="anim-rise font-mono-brand mb-[22px] flex items-center gap-3 text-[15px] font-bold tracking-[0.08em]">
             <span className="inline-block h-3 w-3 border-2 border-[#131118] bg-[#D8FF3E]" />
             THE LISTING PHOTOS YOU ALREADY HAVE — TURNED INTO FILM
@@ -133,54 +182,6 @@ export default function LandingPage() {
               >
                 See one
               </Link>
-            </div>
-          </div>
-        </div>
-
-        {/* The whole proposition, as a picture: their photos on the left, the
-            film those exact photos became on the right. Both are real — the
-            three stills are source frames for the reel playing beside them,
-            not stock. Kept short and high so it never crowds the headline,
-            which is the tallest thing on the page. */}
-        <div className="absolute right-[4vw] top-[104px] hidden items-start gap-4 lg:flex">
-          <div className="relative h-[152px] w-[150px] shrink-0">
-            {[
-              { src: "/hero/photo3.jpg", rot: -9, x: 0, y: 16, z: 1 },
-              { src: "/hero/photo2.jpg", rot: 5, x: 14, y: 8, z: 2 },
-              { src: "/hero/photo1.jpg", rot: -2, x: 5, y: 0, z: 3 },
-            ].map((ph) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                key={ph.src}
-                src={ph.src}
-                alt=""
-                className="absolute w-[132px] border-[3px] border-[#131118] bg-[#F1EEE3] object-cover shadow-[4px_4px_0_rgba(19,17,24,0.3)]"
-                style={{ transform: `rotate(${ph.rot}deg)`, left: ph.x, top: ph.y, zIndex: ph.z }}
-              />
-            ))}
-            <div className="font-mono-brand absolute -bottom-1 left-2 z-10 border-2 border-[#131118] bg-[#D8FF3E] px-2 py-[2px] text-[10px] font-bold">
-              THEIR PHOTOS
-            </div>
-          </div>
-
-          <svg width="52" height="28" viewBox="0 0 52 28" aria-hidden className="mt-[44px] shrink-0">
-            <path d="M2 14h34M30 4l12 10-12 10" fill="none" stroke="#131118"
-                  strokeWidth="4.5" strokeLinecap="square" strokeLinejoin="miter" />
-          </svg>
-
-          <div className="relative shrink-0">
-            <video
-              src="/hero/culverston.mp4"
-              poster="/hero/culverston.jpg"
-              preload="metadata"
-              autoPlay
-              muted
-              loop
-              playsInline
-              className="h-[152px] w-[270px] border-[3px] border-[#131118] object-cover shadow-[6px_6px_0_#131118]"
-            />
-            <div className="font-mono-brand absolute bottom-2 right-2 border-2 border-[#131118] bg-[#6E2CF4] px-2 py-[2px] text-[10px] font-bold text-[#F1EEE3]">
-              ONE REEL
             </div>
           </div>
         </div>
