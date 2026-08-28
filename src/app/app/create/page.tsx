@@ -43,6 +43,12 @@ type Photo = {
 type Shot = {
   position: number;
   sourceUrl: string;
+  /** KIE task. Absent when the shot never reached KIE, so nothing was billed. */
+  taskId?: string;
+  /** Held against this shot, released by the server if it fails. */
+  creditsHeld: number;
+  /** Set once the server has charged or refunded it, so it only happens once. */
+  settled?: boolean;
   state: "generating" | "success" | "fail";
   resultUrl?: string;
   failMsg?: string;
@@ -104,7 +110,11 @@ export default function CreateFilmPage() {
   const [shots, setShots] = useState<Shot[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reelUrl, setReelUrl] = useState<string | null>(null);
+  const [building, setBuilding] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const shotsRef = useRef<Shot[] | null>(null);
+  shotsRef.current = shots;
 
   const softPhotos = photos.filter((p) => !p.hdCapable);
   const canDoHd = photos.length > 0 && softPhotos.length === 0;
@@ -171,6 +181,7 @@ export default function CreateFilmPage() {
         photos.map((p, i) => ({
           position: i,
           sourceUrl: p.url,
+          creditsHeld: 0,
           state: "success" as const,
           resultUrl: undefined,
           approved: false,
@@ -201,20 +212,151 @@ export default function CreateFilmPage() {
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Could not start the film");
 
-      setShots(
-        json.shots.map((s: { position: number; sourceUrl: string; state: string; failMsg?: string }) => ({
+      const initial: Shot[] = json.shots.map(
+        (s: {
+          position: number; sourceUrl: string; state: string;
+          failMsg?: string; taskId?: string; creditsHeld?: number;
+        }) => ({
           position: s.position,
           sourceUrl: s.sourceUrl,
+          taskId: s.taskId,
+          creditsHeld: s.creditsHeld ?? 0,
+          settled: s.state === "fail",
           state: s.state === "fail" ? "fail" : "generating",
           failMsg: s.failMsg,
           approved: false,
-        }))
+        })
       );
+      setShots(initial);
       setStep(5);
+      void poll(initial);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * Poll until every shot is finished.
+   *
+   * `settled` is round-tripped so the server only ever charges or refunds a
+   * shot once — without it, every poll after a shot lands would settle it
+   * again. Shots that never reached KIE arrive already settled and are never
+   * polled, because they have no task to ask about.
+   */
+  async function poll(current: Shot[]) {
+    for (let attempt = 0; attempt < 90; attempt++) {
+      const live = shotsRef.current ?? current;
+      const pending = live.filter((s) => s.taskId && s.state === "generating");
+      if (pending.length === 0) return;
+
+      await new Promise((r) => setTimeout(r, 5000));
+
+      try {
+        const res = await fetch("/api/generate-video/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            shots: (shotsRef.current ?? current)
+              .filter((s) => s.taskId)
+              .map((s) => ({ taskId: s.taskId, creditsHeld: s.creditsHeld, settled: s.settled })),
+          }),
+        });
+        const json = await res.json();
+        if (!json.ok) continue;
+
+        const byTask = new Map<string, { state: string; url?: string; failMsg?: string; settled?: boolean }>(
+          json.shots.map((s: { taskId: string; state: string; url?: string; failMsg?: string; settled?: boolean }) => [
+            s.taskId,
+            s,
+          ])
+        );
+        setShots((prev) =>
+          prev
+            ? prev.map((s) => {
+                const u = s.taskId ? byTask.get(s.taskId) : undefined;
+                if (!u) return s;
+                return {
+                  ...s,
+                  state: u.state === "success" ? "success" : u.state === "fail" ? "fail" : "generating",
+                  resultUrl: u.url ?? s.resultUrl,
+                  failMsg: u.failMsg ?? s.failMsg,
+                  settled: u.settled ?? s.settled,
+                  // A shot that came back is approved-by-default; the agent
+                  // unticks the ones that don't match their photo.
+                  approved: u.state === "success" ? s.approved : false,
+                };
+              })
+            : prev
+        );
+        if (json.done) return;
+      } catch {
+        /* transient — the next sweep tries again */
+      }
+    }
+  }
+
+  /** Reshoot one shot. A new generation, so it costs again — and says so. */
+  async function reshoot(index: number) {
+    const shot = shots?.[index];
+    if (!shot || DEMO) return;
+    setError(null);
+    try {
+      const res = await fetch("/api/generate-video/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          photos: [{ url: shot.sourceUrl, withPeople: false }],
+          quality: effectiveQuality,
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Could not reshoot");
+      const fresh = json.shots[0];
+      setShots((prev) =>
+        prev
+          ? prev.map((s, i) =>
+              i === index
+                ? {
+                    ...s,
+                    taskId: fresh.taskId,
+                    creditsHeld: fresh.creditsHeld ?? 0,
+                    settled: false,
+                    state: "generating",
+                    resultUrl: undefined,
+                    failMsg: undefined,
+                    approved: false,
+                  }
+                : s
+            )
+          : prev
+      );
+      void poll(shotsRef.current ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not reshoot");
+    }
+  }
+
+  /** Hand the approved shots to the joiner and store what comes back. */
+  async function buildReel() {
+    const approved = (shots ?? []).filter((s) => s.approved && s.resultUrl);
+    if (approved.length === 0) return;
+    setBuilding(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/film/assemble", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shots: approved.map((s) => s.resultUrl) }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Could not build the reel");
+      setReelUrl(json.url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not build the reel");
+    } finally {
+      setBuilding(false);
     }
   }
 
@@ -523,6 +665,7 @@ export default function CreateFilmPage() {
                 <div className="flex flex-col justify-center gap-3">
                   <button
                     type="button"
+                    disabled={s.state !== "success"}
                     onClick={() => setShots((prev) => prev!.map((x, n) => (n === i ? { ...x, approved: !x.approved } : x)))}
                     className={`border-[3px] border-[#131118] px-4 py-3 text-[15px] font-extrabold uppercase transition-colors ${
                       s.approved ? "bg-[#D8FF3E]" : "bg-transparent hover:bg-[#D8FF3E]/40"
@@ -532,7 +675,9 @@ export default function CreateFilmPage() {
                   </button>
                   <button
                     type="button"
-                    className="border-[3px] border-[#131118] bg-transparent px-4 py-3 text-[15px] font-extrabold uppercase transition-colors hover:bg-[#6E2CF4] hover:text-[#F1EEE3]"
+                    onClick={() => void reshoot(i)}
+                    disabled={s.state === "generating"}
+                    className="border-[3px] border-[#131118] bg-transparent px-4 py-3 text-[15px] font-extrabold uppercase transition-colors hover:bg-[#6E2CF4] hover:text-[#F1EEE3] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Reshoot
                   </button>
@@ -546,11 +691,50 @@ export default function CreateFilmPage() {
           <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
             <div className="font-display text-[26px]">
               {shots.filter((s) => s.approved).length} OF {shots.length} APPROVED
+              {shots.some((s) => s.state === "generating") && (
+                <span className="font-mono-brand ml-4 text-[13px] font-bold text-[#6E2CF4]">
+                  {shots.filter((s) => s.state === "generating").length} STILL RENDERING…
+                </span>
+              )}
             </div>
-            <Btn tone="lime" disabled={shots.filter((s) => s.approved).length === 0}>
-              Build the film
+            <Btn
+              tone="lime"
+              onClick={() => void buildReel()}
+              disabled={
+                building ||
+                shots.filter((s) => s.approved && s.resultUrl).length === 0 ||
+                shots.some((s) => s.state === "generating")
+              }
+            >
+              {building ? "Building…" : "Build the reel"}
             </Btn>
           </div>
+
+          {reelUrl && (
+            <div className="mt-8 border-[3px] border-[#131118] bg-[#131118] p-6 text-[#F1EEE3]">
+              <div className="font-mono-brand mb-3 text-[12px] font-bold tracking-[0.1em] text-[#D8FF3E]">
+                YOUR REEL
+              </div>
+              <video src={reelUrl} controls playsInline className="w-full border-[3px] border-[#F1EEE3]" />
+              <div className="mt-4 flex flex-wrap gap-4">
+                <a
+                  href={reelUrl}
+                  download
+                  className="inline-block border-[3px] border-[#D8FF3E] bg-[#D8FF3E] px-6 py-3 text-[15px] font-extrabold uppercase text-[#131118] transition-colors hover:bg-[#F1EEE3] hover:border-[#F1EEE3]"
+                >
+                  Download
+                </a>
+                <a
+                  href={reelUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-block border-[3px] border-[#F1EEE3] px-6 py-3 text-[15px] font-extrabold uppercase transition-colors hover:bg-[#F1EEE3] hover:text-[#131118]"
+                >
+                  Open
+                </a>
+              </div>
+            </div>
+          )}
         </Panel>
       )}
     </div>
