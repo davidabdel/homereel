@@ -1,90 +1,80 @@
 import { NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
 import { getRouteUser, unauthorized } from "@/lib/api-guard";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
-function env(name: string) {
-  return process.env[name];
-}
+const UPLOAD_BASE = process.env.KIE_UPLOAD_BASE || "https://kieai.redpandaai.co";
+const MAX_BYTES = 25 * 1024 * 1024;
+const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-function guessMime(fileName: string): string {
-  const ext = path.extname(fileName).toLowerCase();
-  if (ext === ".png") return "image/png";
-  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
-  if (ext === ".webp") return "image/webp";
-  return "application/octet-stream";
-}
-
+/**
+ * Host one photo so KIE can read it, and return the URL.
+ *
+ * Takes the file as multipart. The version this replaced took a JSON `{url}`
+ * and base64'd it — which meant the browser had to already have the photo on
+ * a public URL, and it never could: these come straight off the agent's disk.
+ *
+ * Streams the file through as multipart rather than base64 in JSON. Base64 is
+ * a third larger and this runs on a serverless function with a request-size
+ * ceiling, so the cheap encoding is the one that survives a 20-photo reel.
+ */
 export async function POST(req: Request) {
   try {
     if (!(await getRouteUser())) return unauthorized();
 
-    const { url, fileName } = await req.json().catch(() => ({}));
-    if (!url || typeof url !== "string") {
-      return NextResponse.json({ ok: false, error: "Missing url" }, { status: 400 });
-    }
-
-    const KIE_API_KEY = env("KIE_API_KEY");
-    const KIE_UPLOAD_BASE = env("KIE_UPLOAD_BASE") || "https://kieai.redpandaai.co"; // per docs
-    if (!KIE_API_KEY) {
+    const key = process.env.KIE_API_KEY;
+    if (!key) {
       return NextResponse.json({ ok: false, error: "KIE_API_KEY not configured" }, { status: 500 });
     }
 
-    let dataUrl: string | null = null;
-    let finalFileName = fileName || path.basename(url) || "upload.png";
-
-    if (/^https?:\/\//i.test(url)) {
-      // Remote HTTP URL: fetch and convert to data URL
-      const r = await fetch(url);
-      if (!r.ok) return NextResponse.json({ ok: false, error: `Fetch failed ${r.status}` }, { status: 502 });
-      const buf = Buffer.from(await r.arrayBuffer());
-      const mime = r.headers.get("content-type") || guessMime(finalFileName);
-      dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
-      if (!path.extname(finalFileName)) {
-        // Try to set extension from mime
-        if (mime.includes("png")) finalFileName += ".png";
-        else if (mime.includes("jpeg") || mime.includes("jpg")) finalFileName += ".jpg";
-        else if (mime.includes("webp")) finalFileName += ".webp";
-      }
-    } else {
-      // Local path like /Images/buzz.png -> resolve to public
-      const rel = url.startsWith("/") ? url.slice(1) : url;
-      const abs = path.join(process.cwd(), "public", rel);
-      if (!fs.existsSync(abs)) {
-        return NextResponse.json({ ok: false, error: `Local file not found: ${abs}` }, { status: 404 });
-      }
-      const buf = fs.readFileSync(abs);
-      const mime = guessMime(finalFileName || abs);
-      dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
-      if (!finalFileName) finalFileName = path.basename(abs);
+    const form = await req.formData().catch(() => null);
+    const file = form?.get("file");
+    if (!form || !(file instanceof File)) {
+      return NextResponse.json({ ok: false, error: "No file supplied" }, { status: 400 });
+    }
+    if (file.size > MAX_BYTES) {
+      return NextResponse.json(
+        { ok: false, error: `${file.name} is larger than 25MB` },
+        { status: 413 }
+      );
+    }
+    if (file.type && !ALLOWED.has(file.type)) {
+      return NextResponse.json(
+        { ok: false, error: `${file.name} is a ${file.type}; use JPEG, PNG or WebP` },
+        { status: 415 }
+      );
     }
 
-    // Upload to KIE File Upload (base64)
-    const upRes = await fetch(`${KIE_UPLOAD_BASE}/api/file-base64-upload`, {
+    const out = new FormData();
+    out.append("file", file, file.name || "photo.jpg");
+    out.append("uploadPath", "homereel/photos");
+
+    const res = await fetch(`${UPLOAD_BASE}/api/file-stream-upload`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${KIE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        base64Data: dataUrl,
-        uploadPath: "images/user-uploads",
-        fileName: finalFileName,
-      }),
+      headers: { Authorization: `Bearer ${key}` },
+      body: out,
+      signal: AbortSignal.timeout(50_000),
     });
-    const upJson: any = await upRes.json().catch(() => ({}));
-    if (!upRes.ok || !(upJson?.success || upJson?.code === 200)) {
-      return NextResponse.json({ ok: false, error: `Upload failed ${upRes.status}`, raw: upJson }, { status: 502 });
-    }
-    const uploadedUrl: string | undefined = upJson?.data?.downloadUrl || upJson?.data?.url;
-    if (!uploadedUrl) {
-      return NextResponse.json({ ok: false, error: "No downloadUrl in upload response", raw: upJson }, { status: 502 });
+
+    const json = await res.json().catch(() => ({}) as Record<string, unknown>);
+    const data = (json as { data?: { downloadUrl?: string; fileUrl?: string; url?: string } }).data;
+    const url = data?.downloadUrl || data?.fileUrl || data?.url;
+
+    if (!res.ok || !url) {
+      const msg =
+        (json as { msg?: string; message?: string }).msg ??
+        (json as { message?: string }).message ??
+        `upload returned ${res.status}`;
+      console.error("[kie/upload]", file.name, msg);
+      return NextResponse.json({ ok: false, error: `Could not host ${file.name}: ${msg}` }, { status: 502 });
     }
 
-    return NextResponse.json({ ok: true, uploadedUrl, info: upJson?.data || {} });
-  } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message || "Unknown error" }, { status: 500 });
+    // `url` is the field the wizard reads. Kept flat and predictable.
+    return NextResponse.json({ ok: true, url, name: file.name, bytes: file.size });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[kie/upload]", message);
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

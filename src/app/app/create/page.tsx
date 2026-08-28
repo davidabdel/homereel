@@ -207,16 +207,29 @@ export default function CreateFilmPage() {
     }
 
     try {
-      // Photos have to be hosted before KIE can read them.
-      const uploaded: { url: string; withPeople: boolean }[] = [];
-      for (const p of photos) {
-        const fd = new FormData();
-        fd.append("file", p.file);
-        const r = await fetch("/api/kie/upload", { method: "POST", body: fd });
-        const j = await r.json();
-        if (!j?.url) throw new Error(`Could not upload ${p.file.name}`);
-        uploaded.push({ url: j.url, withPeople: p.withPeople });
-      }
+      // Photos have to be hosted before KIE can read them. Four at a time:
+      // twenty sequential round trips is a long wait staring at a spinner, and
+      // twenty at once is a good way to get rate limited.
+      const uploaded: { url: string; withPeople: boolean }[] = new Array(photos.length);
+      const LANES = 4;
+      let cursor = 0;
+      const lane = async () => {
+        while (cursor < photos.length) {
+          const i = cursor++;
+          const ph = photos[i];
+          const fd = new FormData();
+          fd.append("file", ph.file);
+          const r = await fetch("/api/kie/upload", { method: "POST", body: fd });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok || !j?.url) {
+            // Surface what the server actually said. The old message was just
+            // "Could not upload <name>", which told nobody anything.
+            throw new Error(j?.error || `Could not upload ${ph.file.name} (${r.status})`);
+          }
+          uploaded[i] = { url: j.url, withPeople: ph.withPeople };
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(LANES, photos.length) }, lane));
 
       const res = await fetch("/api/generate-video/create", {
         method: "POST",
