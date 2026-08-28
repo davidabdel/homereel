@@ -72,10 +72,19 @@ export type PlanKey = (typeof PLANS)[number]["key"];
  * Purchased top-ups. Dollar amounts appear at Stripe checkout only — never in
  * the app. These credits last 12 months; the monthly allowance does not.
  */
+/**
+ * Top-ups are the convenience premium, not the discount.
+ *
+ * They used to be cheaper per credit than every plan ($0.0118–0.0133 against
+ * $0.0133–0.0190), which meant a rational Starter member never upgraded — they
+ * just topped up. That inverts what the ladder is for. These sit at roughly
+ * $0.020–0.022 a credit, above every plan, so upgrading is always the better
+ * deal and a top-up is what you buy when you're mid-month and out.
+ */
 export const TOPUPS = [
-  { priceAud: 20, credits: 1500 },
-  { priceAud: 50, credits: 4000 },
-  { priceAud: 100, credits: 8500 },
+  { priceAud: 20, credits: 900 },
+  { priceAud: 50, credits: 2400 },
+  { priceAud: 100, credits: 5000 },
 ] as const;
 
 /** The entry tier. Kept as a named export for anything that wants "the" plan. */

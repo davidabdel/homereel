@@ -89,7 +89,20 @@ async function main() {
   for (const spec of SPECS) {
     let product = await findProduct(spec.key);
     if (product) {
-      console.log(`· product exists   ${spec.name}`);
+      // Update rather than skip. Pack sizes change, and the webhook reads the
+      // credit amount straight off this metadata — a stale value here would
+      // silently grant the wrong number of credits.
+      product = await stripe.products.update(product.id, {
+        name: spec.name,
+        description: spec.description,
+        tax_code: TAX_CODE,
+        metadata: {
+          homereel_key: spec.key,
+          credits: String(spec.credits),
+          bucket: spec.recurring ? "monthly" : "topup",
+        },
+      });
+      console.log(`· product updated  ${spec.name}`);
     } else {
       product = await stripe.products.create({
         name: spec.name,
@@ -112,7 +125,12 @@ async function main() {
 
     let price = await findPrice(product.id, spec.amount, spec.recurring);
     if (price) {
-      console.log(`  price exists     ${price.id}`);
+      // The dollar amount is unchanged, so the price object can stay — but its
+      // metadata carries the credit count too and has to move with it.
+      price = await stripe.prices.update(price.id, {
+        metadata: { homereel_key: spec.key, credits: String(spec.credits) },
+      });
+      console.log(`  price updated    ${price.id}`);
     } else {
       price = await stripe.prices.create({
         product: product.id,
