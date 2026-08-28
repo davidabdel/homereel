@@ -15,7 +15,7 @@
  */
 
 import Stripe from "stripe";
-import { MEMBERSHIP, TOPUPS } from "../src/lib/pricing";
+import { PLANS, TOPUPS } from "../src/lib/pricing";
 
 const key = process.env.STRIPE_SECRET_KEY;
 if (!key) {
@@ -45,15 +45,15 @@ type Spec = {
 };
 
 const SPECS: Spec[] = [
-  {
-    key: "membership",
-    name: "HomeReel membership",
-    description: `${MEMBERSHIP.creditsPerMonth.toLocaleString()} credits every month. GST inclusive.`,
-    amount: MEMBERSHIP.priceAud * 100,
+  ...PLANS.map((p) => ({
+    key: p.key,
+    name: p.name,
+    description: `${p.credits.toLocaleString()} credits every month. GST inclusive.`,
+    amount: p.priceAud * 100,
     recurring: true,
-    credits: MEMBERSHIP.creditsPerMonth,
-    envVar: "NEXT_PUBLIC_STRIPE_PRICE_MEMBERSHIP",
-  },
+    credits: p.credits,
+    envVar: `NEXT_PUBLIC_STRIPE_PRICE_${p.key.toUpperCase()}`,
+  })),
   ...TOPUPS.map((t) => ({
     key: `topup_${t.priceAud}`,
     name: `HomeReel top-up — ${t.credits.toLocaleString()} credits`,

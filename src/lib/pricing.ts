@@ -35,8 +35,42 @@ export const VIDEO_DURATION_SECONDS = "6" as const;
 export const IMAGE_EDIT_MODEL = "google/nano-banana-edit" as const;
 
 /**
- * Purchased top-ups. Dollar amounts appear at Stripe checkout only — never in the
- * app. These credits last 12 months; the monthly allowance does not.
+ * The three membership tiers.
+ *
+ * Every credit costs us at most $0.0076 (an HD shot is 100 credits at $0.61),
+ * so the margin at 100% utilisation is 60% / 53% / 43% top to bottom. There is
+ * no usage pattern on any tier that loses money — that's the property to keep
+ * whenever these numbers change.
+ */
+export const PLANS = [
+  {
+    key: "starter",
+    name: "HomeReel Starter",
+    priceAud: 19,
+    credits: 1000,
+    blurb: "One HD reel a month, or two and a half in Standard.",
+  },
+  {
+    key: "pro",
+    name: "HomeReel Pro",
+    priceAud: 49,
+    credits: 3000,
+    blurb: "Three HD reels a month. For an agent listing every week.",
+  },
+  {
+    key: "extreme",
+    name: "HomeReel Extreme",
+    priceAud: 199,
+    credits: 15000,
+    blurb: "Fifteen HD reels a month. For an office, not a person.",
+  },
+] as const;
+
+export type PlanKey = (typeof PLANS)[number]["key"];
+
+/**
+ * Purchased top-ups. Dollar amounts appear at Stripe checkout only — never in
+ * the app. These credits last 12 months; the monthly allowance does not.
  */
 export const TOPUPS = [
   { priceAud: 20, credits: 1500 },
@@ -44,10 +78,11 @@ export const TOPUPS = [
   { priceAud: 100, credits: 8500 },
 ] as const;
 
+/** The entry tier. Kept as a named export for anything that wants "the" plan. */
 export const MEMBERSHIP = {
-  priceAud: 19,
+  priceAud: PLANS[0].priceAud,
   gstInclusive: true,
-  creditsPerMonth: RATES.monthlyIncluded,
+  creditsPerMonth: PLANS[0].credits,
 } as const;
 
 export const TOPUP_VALIDITY_MONTHS = 12;

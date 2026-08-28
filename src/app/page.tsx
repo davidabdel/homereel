@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { PLANS, RATES, TOPUPS } from "@/lib/pricing";
 
 const ROTATING = ["MOVE", "SELL", "SCROLL-PROOF", "UNMISSABLE"];
 
@@ -316,61 +317,69 @@ export default function LandingPage() {
       {/* ============ PRICING ============ */}
       <section id="pricing" className="border-b-[3px] border-[#131118] px-[4vw] pb-[110px] pt-[90px]">
         <h2 className="font-display m-0 mb-[24px] leading-[0.95]" style={{ fontSize: "clamp(44px, 7vw, 110px)" }}>
-          ONE MEMBERSHIP.<br />
+          THREE PLANS.<br />
           <span className="text-[#6E2CF4]">TOP UP WHEN YOU NEED IT.</span>
         </h2>
         <p className="font-mono-brand mb-[70px] text-[14px] font-bold tracking-[0.06em]">
           ALL PRICES IN AUD, GST INCLUSIVE.
         </p>
-        <div className="grid max-w-[1300px] grid-cols-1 items-stretch gap-10 md:grid-cols-3">
-          {/* What the credits buy */}
-          <div className="flex flex-col gap-5 border-[3px] border-[#131118] bg-[#F1EEE3] px-8 py-[38px] shadow-[8px_8px_0_#131118]">
-            <div className="font-mono-brand text-[14px] font-bold tracking-[0.1em]">WHAT A FILM COSTS</div>
-            <div className="font-display text-[62px] leading-none">1,000<span className="text-[22px]"> CR</span></div>
-            <ul className="m-0 list-disc pl-5 text-[16px] font-medium leading-[2]">
-              <li>A ten-shot HD film</li>
-              <li>Or 25 shots in Standard</li>
-              <li>HD shot — 100 credits</li>
-              <li>Standard shot — 40 credits</li>
-              <li>Family in a room — 20 more</li>
-            </ul>
-            <div className="font-mono-brand mt-auto pt-2 text-[13px] text-[#131118]/60">
-              YOUR MEMBERSHIP COVERS ONE HD FILM A MONTH.
-            </div>
-          </div>
+        <div className="grid max-w-[1300px] grid-cols-1 items-stretch gap-8 md:grid-cols-3">
+          {PLANS.map((plan, i) => {
+            const featured = i === 1;
+            return (
+              <div
+                key={plan.key}
+                className={`relative flex flex-col gap-4 border-[3px] border-[#131118] px-8 py-[36px] ${
+                  featured ? "bg-[#D8FF3E] shadow-[10px_10px_0_#131118]" : "bg-[#F1EEE3] shadow-[8px_8px_0_#131118]"
+                }`}
+                style={featured ? { transform: "rotate(-1.2deg)" } : undefined}
+              >
+                {featured && (
+                  <div
+                    className="font-mono-brand absolute -top-[18px] right-[22px] border-[3px] border-[#131118] bg-[#6E2CF4] px-3.5 py-[5px] text-[12px] font-bold text-[#F1EEE3]"
+                    style={{ transform: "rotate(3deg)" }}
+                  >
+                    MOST AGENTS
+                  </div>
+                )}
+                <div className="font-mono-brand text-[14px] font-bold tracking-[0.1em]">
+                  {plan.name.replace("HomeReel ", "").toUpperCase()}
+                </div>
+                <div className="font-display text-[64px] leading-none">
+                  ${plan.priceAud}<span className="text-[24px]">/MO</span>
+                </div>
+                <div className="font-display text-[24px] leading-none text-[#6E2CF4]">
+                  {plan.credits.toLocaleString()} credits
+                </div>
+                <p className="m-0 text-[15px] font-medium leading-[1.5]">{plan.blurb}</p>
+                <ul className="m-0 list-disc pl-5 text-[15px] font-medium leading-[1.9]">
+                  <li>{Math.floor(plan.credits / (RATES.shot.hd * 10))} HD reels of ten shots</li>
+                  <li>or {Math.floor(plan.credits / (RATES.shot.sd * 10))} in Standard</li>
+                  <li>Approve every shot before it lands</li>
+                </ul>
+                <Link
+                  href="/register"
+                  className={`mt-auto block border-[3px] border-[#131118] py-3.5 text-center text-[16px] font-extrabold uppercase transition-colors ${
+                    featured ? "bg-[#131118] text-[#F1EEE3] hover:bg-[#6E2CF4]" : "hover:bg-[#131118] hover:text-[#F1EEE3]"
+                  }`}
+                >
+                  Choose {plan.name.replace("HomeReel ", "")}
+                </Link>
+              </div>
+            );
+          })}
+        </div>
 
-          {/* Membership (featured) */}
-          <div className="relative flex flex-col gap-5 border-[3px] border-[#131118] bg-[#D8FF3E] px-8 py-[38px] shadow-[10px_10px_0_#131118]" style={{ transform: "rotate(-1.2deg)" }}>
-            <div className="font-mono-brand absolute -top-[18px] right-[22px] border-[3px] border-[#131118] bg-[#6E2CF4] px-3.5 py-[5px] text-[12px] font-bold text-[#F1EEE3]" style={{ transform: "rotate(3deg)" }}>
-              MEMBERSHIP
-            </div>
-            <div className="font-mono-brand text-[14px] font-bold tracking-[0.1em]">HOMEREEL</div>
-            <div className="font-display text-[72px] leading-none">$19<span className="text-[26px]">/MO</span></div>
-            <ul className="m-0 list-disc pl-5 text-[16px] font-medium leading-[2]">
-              <li>1,000 credits every month</li>
-              <li>Standard or High Definition</li>
-              <li>Family in the living spaces</li>
-              <li>Approve every shot before it lands</li>
-              <li>Your films stored and re-downloadable</li>
-            </ul>
-            <Link href="/register" className="mt-auto block border-[3px] border-[#131118] bg-[#131118] py-3.5 text-center text-[16px] font-extrabold uppercase text-[#F1EEE3] transition-colors hover:bg-[#6E2CF4]">
-              Become a member
-            </Link>
-          </div>
-
-          {/* Top ups */}
-          <div className="flex flex-col gap-5 border-[3px] border-[#131118] bg-[#F1EEE3] px-8 py-[38px] shadow-[8px_8px_0_#131118]">
-            <div className="font-mono-brand text-[14px] font-bold tracking-[0.1em]">BUSY MONTH?</div>
-            <div className="font-display text-[62px] leading-none">TOP UP</div>
-            <ul className="m-0 list-none p-0 text-[16px] font-medium leading-[2.1]">
-              <li className="flex justify-between border-b border-[#131118]/20"><span>$20</span><span className="font-bold">1,500 cr</span></li>
-              <li className="flex justify-between border-b border-[#131118]/20"><span>$50</span><span className="font-bold">4,000 cr</span></li>
-              <li className="flex justify-between border-b border-[#131118]/20"><span>$100</span><span className="font-bold">8,500 cr</span></li>
-            </ul>
-            <div className="font-mono-brand mt-auto pt-2 text-[13px] text-[#131118]/60">
-              MONTHLY CREDITS EXPIRE MONTHLY. TOP-UPS LAST 12 MONTHS.
-            </div>
-          </div>
+        <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-2 text-[16px] font-medium">
+          <span className="font-mono-brand text-[13px] font-bold tracking-[0.1em]">TOP UP ANY TIME:</span>
+          {TOPUPS.map((t) => (
+            <span key={t.priceAud}>
+              <strong>${t.priceAud}</strong> → {t.credits.toLocaleString()} cr
+            </span>
+          ))}
+          <span className="font-mono-brand text-[12px] text-[#131118]/55">
+            HD SHOT {RATES.shot.hd} CR · STANDARD {RATES.shot.sd} CR · FAMILY +{RATES.familyRoom} CR
+          </span>
         </div>
       </section>
 

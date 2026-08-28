@@ -16,7 +16,17 @@ const DEMO = process.env.NEXT_PUBLIC_DEMO === "1";
 const PEOPLE_ROOMS = ["Kitchen", "Dining", "Living", "Outdoor dining"] as const;
 type PeopleRoom = (typeof PEOPLE_ROOMS)[number];
 
-const MIN_EDGE = 1000;
+/**
+ * Two thresholds, not one.
+ *
+ * Below MIN_EDGE a photo is genuinely unusable — it would be soft even at
+ * Standard. Between MIN_EDGE and HD_MIN_EDGE it makes a fine 768p reel but
+ * would have to be upscaled for 1080p, which looks soft on a big screen. So
+ * those are accepted and the film is held to Standard rather than rejected:
+ * a portal export at 816px is a normal thing for an agent to have.
+ */
+const MIN_EDGE = 600;
+const HD_MIN_EDGE = 1000;
 
 type Photo = {
   id: string;
@@ -24,6 +34,8 @@ type Photo = {
   url: string;
   width: number;
   height: number;
+  /** False when the short edge is under HD_MIN_EDGE — 1080p would be upscaled. */
+  hdCapable: boolean;
   room?: PeopleRoom;
   withPeople: boolean;
 };
@@ -94,10 +106,12 @@ export default function CreateFilmPage() {
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const softPhotos = photos.filter((p) => !p.hdCapable);
+  const canDoHd = photos.length > 0 && softPhotos.length === 0;
   const familyRooms = photos.filter((p) => p.withPeople).length;
   const quote = useMemo(
-    () => quoteFilm(photos.length, quality, familyRooms),
-    [photos.length, quality, familyRooms]
+    () => quoteFilm(photos.length, photos.length && photos.every((p) => p.hdCapable) ? quality : "sd", familyRooms),
+    [photos, quality, familyRooms]
   );
 
   /* ---- step 1: intake ---------------------------------------------- */
@@ -116,8 +130,8 @@ export default function CreateFilmPage() {
         img.onerror = () => resolve({ w: 0, h: 0 });
         img.src = url;
       });
-      // A small file makes a soft film. Better to say so than to render it.
-      if (Math.min(dims.w, dims.h) < MIN_EDGE) {
+      const shortEdge = Math.min(dims.w, dims.h);
+      if (shortEdge < MIN_EDGE) {
         tooSmall.push(`${file.name} — ${dims.w}×${dims.h}`);
         URL.revokeObjectURL(url);
         continue;
@@ -128,6 +142,7 @@ export default function CreateFilmPage() {
         url,
         width: dims.w,
         height: dims.h,
+        hdCapable: shortEdge >= HD_MIN_EDGE,
         withPeople: false,
       });
     }
@@ -138,6 +153,11 @@ export default function CreateFilmPage() {
       return [...prev, ...next.filter((p) => !seen.has(p.id))];
     });
   }, []);
+
+  // If anything in the set is too small for 1080p, hold the whole reel to
+  // Standard. Mixing them would put visibly soft shots in an HD reel, and the
+  // agent would only find out after paying for it.
+  const effectiveQuality: Quality = canDoHd ? quality : "sd";
 
   /* ---- step 4: submit ---------------------------------------------- */
 
@@ -176,7 +196,7 @@ export default function CreateFilmPage() {
       const res = await fetch("/api/generate-video/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ photos: uploaded, quality }),
+        body: JSON.stringify({ photos: uploaded, quality: effectiveQuality }),
       });
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || "Could not start the film");
@@ -261,10 +281,28 @@ export default function CreateFilmPage() {
           {rejected.length > 0 && (
             <div className="mt-6 border-[3px] border-[#131118] bg-[#131118] px-5 py-4 text-[#F1EEE3]">
               <div className="font-mono-brand mb-2 text-[12px] font-bold tracking-[0.1em] text-[#D8FF3E]">
-                SKIPPED — TOO SMALL TO HOLD UP AT FULL SIZE
+                SKIPPED — UNDER {MIN_EDGE}px, TOO SMALL FOR ANY REEL
               </div>
               {rejected.map((r) => (
                 <div key={r} className="text-[14px]">{r}</div>
+              ))}
+            </div>
+          )}
+
+          {softPhotos.length > 0 && (
+            <div className="mt-6 border-[3px] border-[#131118] bg-[#D8FF3E] px-5 py-4">
+              <div className="font-mono-brand mb-2 text-[12px] font-bold tracking-[0.1em]">
+                THESE WILL BE STANDARD DEFINITION
+              </div>
+              <p className="m-0 mb-2 text-[15px] font-medium leading-[1.5]">
+                {softPhotos.length} of your photo{softPhotos.length === 1 ? " is" : "s are"} under{" "}
+                {HD_MIN_EDGE}px on the short edge. They&apos;ll make a good <strong>768p</strong> reel, but 1080p
+                would have to stretch them and it shows. This reel is set to Standard.
+              </p>
+              {softPhotos.map((p) => (
+                <div key={p.id} className="font-mono-brand text-[13px]">
+                  {p.file.name} — {p.width}×{p.height}
+                </div>
               ))}
             </div>
           )}
@@ -307,14 +345,20 @@ export default function CreateFilmPage() {
           <StepHead n="02" title="Standard or High Definition" sub="Both are built the same way from the same photographs. High Definition is sharper on a big screen and costs more credits." />
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
             {(["sd", "hd"] as Quality[]).map((q) => {
-              const on = quality === q;
+              const blocked = q === "hd" && !canDoHd;
+              const on = effectiveQuality === q;
               return (
                 <button
                   key={q}
                   type="button"
-                  onClick={() => setQuality(q)}
+                  disabled={blocked}
+                  onClick={() => !blocked && setQuality(q)}
                   className={`border-[3px] border-[#131118] px-7 py-8 text-left transition-colors ${
-                    on ? "bg-[#D8FF3E] shadow-[8px_8px_0_#131118]" : "bg-[#F1EEE3] hover:bg-[#D8FF3E]/40"
+                    blocked
+                      ? "cursor-not-allowed bg-[#F1EEE3] opacity-45"
+                      : on
+                        ? "bg-[#D8FF3E] shadow-[8px_8px_0_#131118]"
+                        : "bg-[#F1EEE3] hover:bg-[#D8FF3E]/40"
                   }`}
                 >
                   <div className="font-mono-brand text-[13px] font-bold tracking-[0.1em]">
@@ -328,12 +372,21 @@ export default function CreateFilmPage() {
                     {q === "hd" ? "1080p — for the portal and the big screen." : "768p — fine on a phone, lighter on credits."}
                   </div>
                   <div className="font-mono-brand mt-4 text-[13px] font-bold text-[#131118]/60">
-                    THIS FILM: {photos.length * RATES.shot[q]} CREDITS
+                    {blocked
+                      ? `NEEDS PHOTOS ${HD_MIN_EDGE}px OR LARGER`
+                      : `THIS REEL: ${photos.length * RATES.shot[q]} CREDITS`}
                   </div>
                 </button>
               );
             })}
           </div>
+          {!canDoHd && photos.length > 0 && (
+            <p className="m-0 mt-5 text-[15px] font-medium leading-[1.5]">
+              High Definition is unavailable because {softPhotos.length} of your photo
+              {softPhotos.length === 1 ? " is" : "s are"} under {HD_MIN_EDGE}px on the short edge.
+              Standard makes a good reel from them; 1080p would just stretch them.
+            </p>
+          )}
           <div className="mt-8 flex justify-between">
             <Btn tone="ghost" onClick={() => setStep(1)}>Back</Btn>
             <Btn onClick={() => setStep(3)}>Next</Btn>
@@ -412,8 +465,8 @@ export default function CreateFilmPage() {
           <StepHead n="04" title="Ready to build" sub="Nothing is charged until you press the button, and a shot that fails costs you nothing." />
           <div className="border-[3px] border-[#131118] bg-[#131118] p-7 text-[#F1EEE3]">
             <div className="flex flex-wrap justify-between gap-4 border-b border-[#F1EEE3]/20 py-2 text-[17px]">
-              <span>{quote.shots} shots — {quality === "hd" ? "High Definition" : "Standard"}</span>
-              <span className="font-bold">{quote.shots * RATES.shot[quality]} cr</span>
+              <span>{quote.shots} shots — {effectiveQuality === "hd" ? "High Definition" : "Standard"}</span>
+              <span className="font-bold">{quote.shots * RATES.shot[effectiveQuality]} cr</span>
             </div>
             {quote.familyRooms > 0 && (
               <div className="flex flex-wrap justify-between gap-4 border-b border-[#F1EEE3]/20 py-2 text-[17px]">
@@ -484,7 +537,7 @@ export default function CreateFilmPage() {
                     Reshoot
                   </button>
                   <span className="font-mono-brand text-center text-[11px] font-bold text-[#131118]/50">
-                    RESHOOT COSTS {RATES.shot[quality]} CR
+                    RESHOOT COSTS {RATES.shot[effectiveQuality]} CR
                   </span>
                 </div>
               </div>

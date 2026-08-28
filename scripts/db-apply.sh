@@ -22,6 +22,7 @@ FILES=(
   supabase/migrations/0004_homereel_wallet.sql   # two-bucket wallet, reservations, shots, the $19 plan
   supabase/migrations/0005_signup_and_grants.sql # empty wallet on signup; webhook grant functions
   supabase/migrations/0006_map_stripe_price.sql  # plan -> stripe price
+  supabase/migrations/0007_three_plans.sql       # Starter / Pro / Extreme
 )
 
 for f in "${FILES[@]}"; do
