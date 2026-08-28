@@ -59,7 +59,10 @@ export default function PricingPage() {
                 </div>
                 <p className="m-0 text-[16px] font-medium leading-[1.5]">{plan.blurb}</p>
                 <ul className="m-0 list-disc pl-5 text-[15px] font-medium leading-[1.9]">
-                  <li>{Math.floor(plan.credits / (RATES.shot.hd * 10))} HD reels of ten shots</li>
+                  <li>
+                    {Math.floor(plan.credits / (RATES.shot.hd * 10))} HD reel
+                    {Math.floor(plan.credits / (RATES.shot.hd * 10)) === 1 ? "" : "s"} of ten shots
+                  </li>
                   <li>or {Math.floor(plan.credits / (RATES.shot.sd * 10))} in Standard</li>
                   <li>Family in the living spaces</li>
                   <li>Approve every shot before it lands</li>
