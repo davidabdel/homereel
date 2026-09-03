@@ -56,7 +56,12 @@ type Shot = {
   resultUrl?: string;
   failMsg?: string;
   approved: boolean;
+  /** When this shot was handed to KIE. Only used to drive the rendering bar. */
+  startedAt: number;
 };
+
+/** What a shot usually takes. Not a promise — the bar never sits full on it. */
+const EXPECTED_RENDER_MS = 180_000;
 
 /* ------------------------------------------------------------- primitives */
 
@@ -91,6 +96,43 @@ function Btn({
   );
 }
 
+/**
+ * The rendering bar.
+ *
+ * A shot takes about three minutes and KIE gives back nothing about how far
+ * through it is, so this is deliberately honest about what it is: a clock with
+ * a bar attached, not a measurement. It walks to 90% across the expected three
+ * minutes and then crawls, so it can never read full while the shot is still
+ * going. The stripes march on their own — that's the bit that says the app
+ * hasn't died, which is the whole complaint this answers.
+ */
+function RenderProgress({ elapsedMs }: { elapsedMs: number }) {
+  const t = Math.max(0, elapsedMs);
+  const over = t > EXPECTED_RENDER_MS;
+  const pct = over
+    ? 90 + 9 * (1 - Math.exp(-(t - EXPECTED_RENDER_MS) / EXPECTED_RENDER_MS))
+    : 2 + (t / EXPECTED_RENDER_MS) * 88;
+  const secs = Math.floor(t / 1000);
+  const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+
+  return (
+    <div className="flex aspect-video w-full flex-col items-center justify-center gap-4 border-[3px] border-dashed border-[#131118] px-5 text-center">
+      <div className="font-mono-brand text-[13px] font-bold tracking-[0.08em]">
+        {over ? "STILL RENDERING" : "RENDERING"} ✱ {clock}
+      </div>
+      <div className="h-5 w-full max-w-[320px] border-[3px] border-[#131118] bg-[#F1EEE3] p-[2px]">
+        <div
+          className="render-stripes h-full transition-[width] duration-1000 ease-linear"
+          style={{ width: `${pct.toFixed(1)}%` }}
+        />
+      </div>
+      <div className="font-mono-brand text-[11px] font-bold leading-[1.4] text-[#131118]/55">
+        {over ? "LONGER THAN USUAL — IT'S STILL GOING" : "USUALLY ABOUT THREE MINUTES"}
+      </div>
+    </div>
+  );
+}
+
 function StepHead({ n, title, sub }: { n: string; title: string; sub?: string }) {
   return (
     <div className="mb-7">
@@ -118,9 +160,21 @@ export default function CreateFilmPage() {
   const [needCredits, setNeedCredits] = useState<{ required: number; available: number } | null>(null);
   const { user } = useAuth();
   const [building, setBuilding] = useState(false);
+  const [buildError, setBuildError] = useState<string | null>(null);
+  const [now, setNow] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const shotsRef = useRef<Shot[] | null>(null);
   shotsRef.current = shots;
+
+  // One clock for the whole page rather than one per shot: the shots all render
+  // in parallel, so they all want the same second.
+  const anyRendering = !!shots?.some((s) => s.state === "generating");
+  useEffect(() => {
+    if (!anyRendering) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [anyRendering]);
 
   useEffect(() => {
     if (DEMO) { setBalance(1000); return; }
@@ -199,6 +253,7 @@ export default function CreateFilmPage() {
           state: "success" as const,
           resultUrl: undefined,
           approved: false,
+          startedAt: Date.now(),
         }))
       );
       setStep(5);
@@ -261,6 +316,7 @@ export default function CreateFilmPage() {
           state: s.state === "fail" ? "fail" : "generating",
           failMsg: s.failMsg,
           approved: false,
+          startedAt: Date.now(),
         })
       );
       setShots(initial);
@@ -363,6 +419,7 @@ export default function CreateFilmPage() {
                     resultUrl: undefined,
                     failMsg: undefined,
                     approved: false,
+                    startedAt: Date.now(),
                   }
                 : s
             )
@@ -374,23 +431,40 @@ export default function CreateFilmPage() {
     }
   }
 
-  /** Hand the approved shots to the joiner and store what comes back. */
+  /**
+   * Hand the approved shots to the joiner and store what comes back.
+   *
+   * Anything that goes wrong is reported *beside the button*, not in the banner
+   * at the top of the page. On a phone the approve screen is metres long, so a
+   * message up there is a message nobody sees — which is exactly how a broken
+   * route looked like a button that did nothing.
+   */
   async function buildReel() {
     const approved = (shots ?? []).filter((s) => s.approved && s.resultUrl);
     if (approved.length === 0) return;
     setBuilding(true);
-    setError(null);
+    setBuildError(null);
     try {
       const res = await fetch("/api/reel/assemble", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ shots: approved.map((s) => s.resultUrl) }),
       });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error || "Could not build the reel");
+      // Read as text first. A 404 or a gateway timeout answers with HTML, and
+      // res.json() on that throws a parse error that says nothing useful.
+      const raw = await res.text();
+      let json: { ok?: boolean; url?: string; error?: string } = {};
+      try {
+        json = JSON.parse(raw);
+      } catch {
+        throw new Error(`The reel builder answered ${res.status} and not with a reel.`);
+      }
+      if (!res.ok || !json.ok || !json.url) {
+        throw new Error(json.error || `The reel builder answered ${res.status}.`);
+      }
       setReelUrl(json.url);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not build the reel");
+      setBuildError(e instanceof Error ? e.message : "Could not build the reel");
     } finally {
       setBuilding(false);
     }
@@ -740,10 +814,12 @@ export default function CreateFilmPage() {
                   </div>
                   {s.state === "success" && s.resultUrl ? (
                     <video src={s.resultUrl} className="aspect-video w-full border-[3px] border-[#131118] object-cover" controls muted loop playsInline />
+                  ) : s.state === "generating" && !DEMO ? (
+                    <RenderProgress elapsedMs={now - s.startedAt} />
                   ) : (
                     <div className="flex aspect-video w-full items-center justify-center border-[3px] border-dashed border-[#131118] text-center">
                       <span className="font-mono-brand text-[13px] font-bold">
-                        {s.state === "fail" ? s.failMsg || "FAILED — NOT CHARGED" : DEMO ? "DEMO — NOT RENDERED" : "RENDERING…"}
+                        {s.state === "fail" ? s.failMsg || "FAILED — NOT CHARGED" : "DEMO — NOT RENDERED"}
                       </span>
                     </div>
                   )}
@@ -783,18 +859,31 @@ export default function CreateFilmPage() {
                 </span>
               )}
             </div>
-            <Btn
-              tone="lime"
-              onClick={() => void buildReel()}
-              disabled={
-                building ||
-                shots.filter((s) => s.approved && s.resultUrl).length === 0 ||
-                shots.some((s) => s.state === "generating")
-              }
-            >
-              {building ? "Building…" : "Build the reel"}
-            </Btn>
+            <div className="flex flex-col items-end gap-2">
+              <Btn
+                tone="lime"
+                onClick={() => void buildReel()}
+                disabled={
+                  building ||
+                  shots.filter((s) => s.approved && s.resultUrl).length === 0 ||
+                  shots.some((s) => s.state === "generating")
+                }
+              >
+                {building ? "Building…" : "Build the reel"}
+              </Btn>
+              {building && (
+                <span className="font-mono-brand text-[11px] font-bold text-[#131118]/55">
+                  JOINING THE SHOTS ✱ UP TO A MINUTE
+                </span>
+              )}
+            </div>
           </div>
+
+          {buildError && (
+            <div className="mt-5 border-[3px] border-[#131118] bg-[#6E2CF4] px-5 py-4 text-[16px] font-bold text-[#F1EEE3]">
+              {buildError}
+            </div>
+          )}
 
           {reelUrl && (
             <div className="mt-8 border-[3px] border-[#131118] bg-[#131118] p-6 text-[#F1EEE3]">

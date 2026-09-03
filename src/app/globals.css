@@ -137,6 +137,16 @@ html, body {
 @keyframes wobble { from { transform: rotate(-7deg); } to { transform: rotate(5deg); } }
 @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 
+/* The rendering bar. KIE tells us nothing about how far through a shot is, so
+   the bar is a clock rather than a measurement — but the stripes march on
+   their own, which is the part that says "still alive" between polls. */
+@keyframes stripes { to { background-position: 48px 0; } }
+.render-stripes {
+  background-image: repeating-linear-gradient(-45deg, #D8FF3E 0 12px, #6E2CF4 12px 24px);
+  background-size: 48px 48px;
+  animation: stripes 1.1s linear infinite;
+}
+
 .anim-rise { animation: rise 0.8s ease both; }
 .marquee-track { display: flex; width: max-content; white-space: nowrap; animation: mq 22s linear infinite; }
 
