@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { getRouteUser, unauthorized, rateLimit } from "@/lib/api-guard";
 import { putObject, r2Configured } from "@/lib/r2";
+import { PAN_ZOOM } from "@/lib/film";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -55,10 +56,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Every shot must be a URL" }, { status: 400 });
     }
 
+    // The lateral move, applied in post. Sent alongside the URLs rather than
+    // inside them so an older joiner that has never heard of pans still gets
+    // a plain string list and still returns a reel — one less thing that has
+    // to deploy in lockstep with this route.
+    const rawPans: unknown[] = Array.isArray(body?.pans) ? body.pans : [];
+    const pans = shots.map((_, i) => (rawPans[i] === "lr" || rawPans[i] === "rl" ? rawPans[i] : null));
+
     const joined = await fetch(`${JOINER_URL.replace(/\/+$/, "")}/join`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ shots, crossfade: CROSSFADE, grade: true }),
+      body: JSON.stringify({ shots, pans, panZoom: PAN_ZOOM, crossfade: CROSSFADE, grade: true }),
       // A cold Cloud Run container plus a 15-shot join needs real headroom.
       signal: AbortSignal.timeout(280_000),
     });

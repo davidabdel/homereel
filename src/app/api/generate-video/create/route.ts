@@ -1,11 +1,32 @@
 import { NextResponse } from "next/server";
 import { getRouteUser, unauthorized, rateLimit, reserveCredits, releaseCredits } from "@/lib/api-guard";
 import { RATES, quoteFilm, type Quality } from "@/lib/pricing";
-import { moveForIndex, submitShot } from "@/lib/film";
+import { cleanNote, planForIndex, submitShot, type Move, type Pan } from "@/lib/film";
 
 export const runtime = "nodejs";
 
-type IncomingPhoto = { url: string; withPeople?: boolean };
+/**
+ * `move`, `pan` and `note` only arrive on a reshoot.
+ *
+ * A first run has no opinion and takes the planned rhythm. A reshoot has to
+ * keep the shot it is replacing — same move, same pan — or the film changes
+ * shape underneath the agent every time they fix one bad shot.
+ */
+type IncomingPhoto = {
+  url: string;
+  withPeople?: boolean;
+  move?: string;
+  pan?: string | null;
+  note?: string;
+};
+
+function readMove(v: unknown): Move | null {
+  return v === "push" || v === "locked" ? v : null;
+}
+
+function readPan(v: unknown): Pan {
+  return v === "lr" || v === "rl" ? v : null;
+}
 
 /**
  * Submit a whole film: one createTask per photo.
@@ -66,13 +87,18 @@ export async function POST(req: Request) {
     const results = await Promise.all(
       photos.map(async (photo, i) => {
         const withPeople = Boolean(photo.withPeople);
-        const move = moveForIndex(i);
-        const r = await submitShot({ imageUrl: photo.url, quality, move, withPeople, callbackUrl });
+        const planned = planForIndex(i);
+        const move = readMove(photo.move) ?? planned.move;
+        const pan = photo.move ? readPan(photo.pan) : planned.pan;
+        const note = cleanNote(photo.note);
+        const r = await submitShot({ imageUrl: photo.url, quality, move, withPeople, note, callbackUrl });
         return {
           position: i,
           sourceUrl: photo.url,
           withPeople,
           move,
+          pan,
+          note,
           creditsHeld: perShot + (withPeople ? RATES.familyRoom : 0),
           ...(r.ok
             ? { taskId: r.taskId, state: "generating" as const }

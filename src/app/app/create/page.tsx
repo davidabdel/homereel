@@ -57,6 +57,18 @@ type Shot = {
   resultUrl?: string;
   failMsg?: string;
   approved: boolean;
+  /**
+   * Deliberately dropped. Distinct from "not approved yet", which is the state
+   * every shot starts in — without it the counter can't tell an agent who has
+   * finished checking from one who has twelve shots still to look at.
+   */
+  ignored: boolean;
+  /** The camera move this shot was generated with, so a reshoot keeps it. */
+  move?: "push" | "locked";
+  /** The post-pan applied when the reel is assembled. */
+  pan?: "lr" | "rl" | null;
+  /** Carried so a reshoot doesn't quietly lose the people in the room. */
+  withPeople: boolean;
   /** When this shot was handed to KIE. Only used to drive the rendering bar. */
   startedAt: number;
 };
@@ -89,6 +101,10 @@ function describeUploadFailure(status: number, bytes: number): string {
 
 /** What a shot usually takes. Not a promise — the bar never sits full on it. */
 const EXPECTED_RENDER_MS = 180_000;
+
+/** Mirrors MAX_NOTE_CHARS in src/lib/film.ts. Kept local so the KIE module,
+ *  which reads server-only env at import time, stays out of the client bundle. */
+const MAX_NOTE = 300;
 
 /* ------------------------------------------------------------- primitives */
 
@@ -190,6 +206,9 @@ export default function CreateFilmPage() {
   const { user } = useAuth();
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
+  /** Which shot currently has its reshoot note box open, and what's in it. */
+  const [noteFor, setNoteFor] = useState<number | null>(null);
+  const [noteText, setNoteText] = useState("");
   const [now, setNow] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const shotsRef = useRef<Shot[] | null>(null);
@@ -304,6 +323,8 @@ export default function CreateFilmPage() {
           state: "success" as const,
           resultUrl: undefined,
           approved: false,
+          ignored: false,
+          withPeople: p.withPeople,
           startedAt: Date.now(),
         }))
       );
@@ -413,6 +434,7 @@ export default function CreateFilmPage() {
         (s: {
           position: number; sourceUrl: string; state: string;
           failMsg?: string; taskId?: string; creditsHeld?: number;
+          move?: "push" | "locked"; pan?: "lr" | "rl" | null; withPeople?: boolean;
         }) => ({
           position: s.position,
           sourceUrl: s.sourceUrl,
@@ -422,6 +444,10 @@ export default function CreateFilmPage() {
           state: s.state === "fail" ? "fail" : "generating",
           failMsg: s.failMsg,
           approved: false,
+          ignored: false,
+          move: s.move,
+          pan: s.pan ?? null,
+          withPeople: Boolean(s.withPeople),
           startedAt: Date.now(),
         })
       );
@@ -495,17 +521,37 @@ export default function CreateFilmPage() {
     }
   }
 
-  /** Reshoot one shot. A new generation, so it costs again — and says so. */
-  async function reshoot(index: number) {
+  /**
+   * Reshoot one shot. A new generation, so it costs again — and says so.
+   *
+   * `note` is the agent's own words about what went wrong, and rides into the
+   * prompt ahead of the accuracy rules so it can correct a shot without ever
+   * licensing the model to add something the photo doesn't have.
+   *
+   * The move, the pan and the people all come from the shot being replaced.
+   * This used to send `withPeople: false` and no move at all, so reshooting a
+   * kitchen with a family in it returned an empty kitchen, and every reshoot
+   * silently became shot one's push.
+   */
+  async function reshoot(index: number, note = "") {
     const shot = shots?.[index];
     if (!shot || DEMO) return;
     setError(null);
+    setNoteFor(null);
     try {
       const res = await fetch("/api/generate-video/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          photos: [{ url: shot.sourceUrl, withPeople: false }],
+          photos: [
+            {
+              url: shot.sourceUrl,
+              withPeople: shot.withPeople,
+              move: shot.move ?? "locked",
+              pan: shot.pan ?? null,
+              note,
+            },
+          ],
           quality: effectiveQuality,
         }),
       });
@@ -525,6 +571,9 @@ export default function CreateFilmPage() {
                     resultUrl: undefined,
                     failMsg: undefined,
                     approved: false,
+                    ignored: false,
+                    move: fresh.move ?? s.move,
+                    pan: fresh.pan ?? s.pan ?? null,
                     startedAt: Date.now(),
                   }
                 : s
@@ -546,7 +595,7 @@ export default function CreateFilmPage() {
    * route looked like a button that did nothing.
    */
   async function buildReel() {
-    const approved = (shots ?? []).filter((s) => s.approved && s.resultUrl);
+    const approved = (shots ?? []).filter((s) => s.approved && !s.ignored && s.resultUrl);
     if (approved.length === 0) return;
     setBuilding(true);
     setBuildError(null);
@@ -554,7 +603,11 @@ export default function CreateFilmPage() {
       const res = await fetch("/api/reel/assemble", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shots: approved.map((s) => s.resultUrl) }),
+        body: JSON.stringify({
+          shots: approved.map((s) => s.resultUrl),
+          // Positional, so it has to be built from the same filtered list.
+          pans: approved.map((s) => s.pan ?? null),
+        }),
       });
       // Read as text first. A 404 or a gateway timeout answers with HTML, and
       // res.json() on that throws a parse error that says nothing useful.
@@ -960,66 +1013,139 @@ export default function CreateFilmPage() {
           <StepHead
             n="05"
             title="Check every shot"
-            sub="Each shot sits beside the photograph it came from. If a wall moved, a window changed shape or a room grew, reject it and shoot it again — only what you approve goes in the reel."
+            sub="Each shot sits beside the photograph it came from. If a wall moved, a window changed shape or a room grew, ignore it or shoot it again — only what you approve goes in the reel."
           />
           <div className="flex flex-col gap-6">
             {shots.map((s, i) => (
-              <div key={s.position} className="grid grid-cols-1 gap-4 border-[3px] border-[#131118] p-4 md:grid-cols-[1fr_1fr_190px]">
-                <div>
-                  <div className="font-mono-brand mb-2 inline-block bg-[#131118] px-2 py-1 text-[11px] font-bold text-[#F1EEE3]">
-                    THE PHOTO
-                  </div>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={s.sourceUrl} alt="" className="aspect-video w-full border-[3px] border-[#131118] object-cover" />
-                </div>
-                <div>
-                  <div className="font-mono-brand mb-2 inline-block bg-[#6E2CF4] px-2 py-1 text-[11px] font-bold text-[#F1EEE3]">
-                    SHOT {i + 1}
-                  </div>
-                  {s.state === "success" && s.resultUrl ? (
-                    <video src={s.resultUrl} className="aspect-video w-full border-[3px] border-[#131118] object-cover" controls muted loop playsInline />
-                  ) : s.state === "generating" && !DEMO ? (
-                    <RenderProgress elapsedMs={now - s.startedAt} />
-                  ) : (
-                    <div className="flex aspect-video w-full items-center justify-center border-[3px] border-dashed border-[#131118] text-center">
-                      <span className="font-mono-brand text-[13px] font-bold">
-                        {s.state === "fail" ? s.failMsg || "FAILED — NOT CHARGED" : "DEMO — NOT RENDERED"}
-                      </span>
+              <div
+                key={s.position}
+                className={`border-[3px] border-[#131118] p-4 ${s.ignored ? "opacity-45" : ""}`}
+              >
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_1fr_190px]">
+                  <div>
+                    <div className="font-mono-brand mb-2 inline-block bg-[#131118] px-2 py-1 text-[11px] font-bold text-[#F1EEE3]">
+                      THE PHOTO
                     </div>
-                  )}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={s.sourceUrl} alt="" className="aspect-video w-full border-[3px] border-[#131118] object-cover" />
+                  </div>
+                  <div>
+                    <div className="font-mono-brand mb-2 inline-block bg-[#6E2CF4] px-2 py-1 text-[11px] font-bold text-[#F1EEE3]">
+                      SHOT {i + 1}
+                    </div>
+                    {s.state === "success" && s.resultUrl ? (
+                      <video src={s.resultUrl} className="aspect-video w-full border-[3px] border-[#131118] object-cover" controls muted loop playsInline />
+                    ) : s.state === "generating" && !DEMO ? (
+                      <RenderProgress elapsedMs={now - s.startedAt} />
+                    ) : (
+                      <div className="flex aspect-video w-full items-center justify-center border-[3px] border-dashed border-[#131118] text-center">
+                        <span className="font-mono-brand text-[13px] font-bold">
+                          {s.state === "fail" ? s.failMsg || "FAILED — NOT CHARGED" : "DEMO — NOT RENDERED"}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-col justify-center gap-3">
+                    <button
+                      type="button"
+                      disabled={s.state !== "success" || s.ignored}
+                      onClick={() =>
+                        setShots((prev) => prev!.map((x, n) => (n === i ? { ...x, approved: !x.approved } : x)))
+                      }
+                      className={`border-[3px] border-[#131118] px-4 py-3 text-[15px] font-extrabold uppercase transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                        s.approved ? "bg-[#D8FF3E]" : "bg-transparent hover:bg-[#D8FF3E]/40"
+                      }`}
+                    >
+                      {s.approved ? "✓ Approved" : "Approve"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNoteText("");
+                        setNoteFor(noteFor === i ? null : i);
+                      }}
+                      disabled={s.state === "generating" || s.ignored}
+                      className="border-[3px] border-[#131118] bg-transparent px-4 py-3 text-[15px] font-extrabold uppercase transition-colors hover:bg-[#6E2CF4] hover:text-[#F1EEE3] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Reshoot
+                    </button>
+                    {/* Ignore is not the same as leaving a shot unapproved. It
+                        says "I looked at this and it's out", which is what makes
+                        the counter below mean anything. */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNoteFor((n) => (n === i ? null : n));
+                        setShots((prev) =>
+                          prev!.map((x, n) =>
+                            n === i ? { ...x, ignored: !x.ignored, approved: false } : x
+                          )
+                        );
+                      }}
+                      className="border-[3px] border-[#131118] bg-transparent px-4 py-2.5 text-[13px] font-extrabold uppercase transition-colors hover:bg-[#131118] hover:text-[#F1EEE3]"
+                    >
+                      {s.ignored ? "Put it back" : "Ignore"}
+                    </button>
+                    <span className="font-mono-brand text-center text-[11px] font-bold text-[#131118]/50">
+                      {s.ignored ? "NOT IN THE REEL" : `RESHOOT COSTS ${RATES.shot[effectiveQuality]} CR`}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex flex-col justify-center gap-3">
-                  <button
-                    type="button"
-                    disabled={s.state !== "success"}
-                    onClick={() => setShots((prev) => prev!.map((x, n) => (n === i ? { ...x, approved: !x.approved } : x)))}
-                    className={`border-[3px] border-[#131118] px-4 py-3 text-[15px] font-extrabold uppercase transition-colors ${
-                      s.approved ? "bg-[#D8FF3E]" : "bg-transparent hover:bg-[#D8FF3E]/40"
-                    }`}
-                  >
-                    {s.approved ? "✓ Approved" : "Approve"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void reshoot(i)}
-                    disabled={s.state === "generating"}
-                    className="border-[3px] border-[#131118] bg-transparent px-4 py-3 text-[15px] font-extrabold uppercase transition-colors hover:bg-[#6E2CF4] hover:text-[#F1EEE3] disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Reshoot
-                  </button>
-                  <span className="font-mono-brand text-center text-[11px] font-bold text-[#131118]/50">
-                    RESHOOT COSTS {RATES.shot[effectiveQuality]} CR
-                  </span>
-                </div>
+
+                {noteFor === i && (
+                  <div className="mt-4 border-[3px] border-[#131118] bg-[#131118] p-4 text-[#F1EEE3]">
+                    <label
+                      htmlFor={`note-${i}`}
+                      className="font-mono-brand mb-2 block text-[12px] font-bold tracking-[0.08em] text-[#D8FF3E]"
+                    >
+                      WHAT WENT WRONG, AND WHAT YOU WANT INSTEAD
+                    </label>
+                    <textarea
+                      id={`note-${i}`}
+                      value={noteText}
+                      onChange={(e) => setNoteText(e.target.value.slice(0, MAX_NOTE))}
+                      rows={3}
+                      autoFocus
+                      placeholder="e.g. it added a second doorway on the left — hold tighter on the bench and don't drift"
+                      className="w-full border-[3px] border-[#F1EEE3] bg-[#131118] p-3 text-[15px] text-[#F1EEE3] placeholder:text-[#F1EEE3]/40 focus:outline-none focus:border-[#D8FF3E]"
+                    />
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                      <span className="font-mono-brand text-[11px] font-bold text-[#F1EEE3]/50">
+                        {noteText.length}/{MAX_NOTE} ✱ NOTHING YOU TYPE CAN ADD SOMETHING THE PHOTO DOESN&apos;T HAVE
+                      </span>
+                      <div className="flex gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setNoteFor(null)}
+                          className="border-[3px] border-[#F1EEE3] px-5 py-2.5 text-[14px] font-extrabold uppercase transition-colors hover:bg-[#F1EEE3] hover:text-[#131118]"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void reshoot(i, noteText)}
+                          className="border-[3px] border-[#D8FF3E] bg-[#D8FF3E] px-5 py-2.5 text-[14px] font-extrabold uppercase text-[#131118] transition-colors hover:bg-[#6E2CF4] hover:border-[#6E2CF4] hover:text-[#F1EEE3]"
+                        >
+                          Reshoot — {RATES.shot[effectiveQuality]} CR
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
           <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
             <div className="font-display text-[26px]">
-              {shots.filter((s) => s.approved).length} OF {shots.length} APPROVED
-              {shots.some((s) => s.state === "generating") && (
+              {shots.filter((s) => s.approved && !s.ignored).length} OF {shots.length} APPROVED
+              {shots.some((s) => s.ignored) && (
+                <span className="font-mono-brand ml-4 text-[13px] font-bold text-[#131118]/55">
+                  {shots.filter((s) => s.ignored).length} IGNORED
+                </span>
+              )}
+              {shots.some((s) => !s.ignored && s.state === "generating") && (
                 <span className="font-mono-brand ml-4 text-[13px] font-bold text-[#6E2CF4]">
-                  {shots.filter((s) => s.state === "generating").length} STILL RENDERING…
+                  {shots.filter((s) => !s.ignored && s.state === "generating").length} STILL RENDERING…
                 </span>
               )}
             </div>
@@ -1029,8 +1155,10 @@ export default function CreateFilmPage() {
                 onClick={() => void buildReel()}
                 disabled={
                   building ||
-                  shots.filter((s) => s.approved && s.resultUrl).length === 0 ||
-                  shots.some((s) => s.state === "generating")
+                  shots.filter((s) => s.approved && !s.ignored && s.resultUrl).length === 0 ||
+                  // An ignored shot isn't going in the reel, so waiting for it
+                  // to finish rendering would be waiting for nothing.
+                  shots.some((s) => !s.ignored && s.state === "generating")
                 }
               >
                 {building ? "Building…" : "Build the reel"}

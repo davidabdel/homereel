@@ -29,32 +29,74 @@ const SPINE_PEOPLE =
   "scene stay exactly where they are and move only naturally and subtly.";
 
 /**
- * Only two moves are safe. A move that *reveals* new area forces the model to
- * invent what's there; a move that consumes area cannot. Never rise, pull back
- * or orbit — and a pan is only safe square-on to an elevation, because a
- * lateral move past an angled facade is an orbit by another name.
+ * The model is only ever allowed two things: push in, or hold still.
+ *
+ * A move that *reveals* new area forces the model to answer "what is just off
+ * the side of this frame", and it has nothing to answer with, so it invents —
+ * a pond, a window, a second room. A move that only ever consumes area it can
+ * already see cannot. That is the whole rule, and it is why the pans were the
+ * shots coming back wrong while the pushes came back clean.
+ *
+ * So we no longer ask for a pan. The lateral move is done afterwards, in the
+ * joiner, by zooming into the finished shot and sliding the window across it —
+ * see `PAN_ZOOM`. Nothing outside the photograph can ever reach the screen.
  */
 export const MOVES = {
   push:
     "Smooth cinematic dolly pushing steadily forward into the scene, continuous forward travel " +
     "that stops short of any doorway, gateway or opening and never passes through it. ",
-  panLR:
-    "Smooth cinematic camera pan travelling from left to right through the space, a steady " +
-    "continuous horizontal move with clear lateral travel. ",
-  panRL:
-    "Smooth cinematic camera pan travelling from right to left across the front of the property, a " +
-    "steady continuous horizontal move with clear lateral travel and real parallax. ",
+  locked:
+    "The camera is locked off on a tripod and does not move at all: no pan, no tilt, no zoom, no " +
+    "dolly, no drift. The framing in the last frame is identical to the framing in the first. ",
 } as const;
 
 export type Move = keyof typeof MOVES;
 
-export function buildPrompt(move: Move, withPeople: boolean): string {
+/**
+ * The lateral move, applied in post rather than asked of the model.
+ *
+ * `lr` slides the window left to right, `rl` right to left, `null` leaves the
+ * shot alone. A push already has movement of its own and never takes a pan.
+ */
+export type Pan = "lr" | "rl" | null;
+
+/**
+ * How far in the post-pan zooms before it starts travelling.
+ *
+ * The zoom is what buys the travel: at 1/0.82 there is 18% of frame width to
+ * slide through, which reads as a real pan over six seconds. Going tighter
+ * gives more travel but upscales the shot harder, and this is already the
+ * point where a 1080p shot stays sharp on a phone.
+ */
+export const PAN_ZOOM = 0.82;
+
+export type ShotPlan = { move: Move; pan: Pan };
+
+/** Cap on a reshoot note. Long enough to say what went wrong, short enough
+ *  that it can't out-weigh the accuracy spine that follows it. */
+export const MAX_NOTE_CHARS = 300;
+
+export function cleanNote(note: unknown): string {
+  if (typeof note !== "string") return "";
+  return note.replace(/\s+/g, " ").trim().slice(0, MAX_NOTE_CHARS);
+}
+
+/**
+ * The agent's note goes *before* the accuracy spine, never after it.
+ *
+ * Whatever they type is a correction to the last attempt, not a licence to add
+ * something. Putting it ahead of "nothing is added and no part of the room
+ * changes shape" means the spine is still the last word in the prompt.
+ */
+export function buildPrompt(move: Move, withPeople: boolean, note = ""): string {
   const spine = withPeople ? SPINE_PEOPLE : SPINE_EMPTY;
   const people = withPeople
     ? " The people already in the scene continue what they are doing, calmly and naturally."
     : "";
-  const rig = move === "push" ? "smooth motorised dolly" : "smooth motorised slider";
-  return `${MOVES[move]}${spine}${people} Real estate cinematography, ${rig}, no text.`;
+  const clean = cleanNote(note);
+  const correction = clean ? `Correcting the previous attempt: ${clean}. ` : "";
+  const rig = move === "push" ? "smooth motorised dolly" : "locked-off tripod";
+  return `${MOVES[move]}${correction}${spine}${people} Real estate cinematography, ${rig}, no text.`;
 }
 
 /* -------------------------------------------------------------- shot order */
@@ -66,10 +108,15 @@ export function buildPrompt(move: Move, withPeople: boolean): string {
  */
 export const SHOT_ORDER = ["approach", "arrive", "live", "retreat", "land"] as const;
 
-/** Alternate the move so a film doesn't feel like one long zoom. */
-export function moveForIndex(i: number): Move {
-  if (i % 3 === 0) return "push";
-  return i % 3 === 1 ? "panLR" : "panRL";
+/**
+ * Alternate the move so a film doesn't feel like one long zoom.
+ *
+ * Same rhythm as before — push, left-to-right, right-to-left — except the two
+ * lateral shots are now generated locked off and panned in post.
+ */
+export function planForIndex(i: number): ShotPlan {
+  if (i % 3 === 0) return { move: "push", pan: null };
+  return { move: "locked", pan: i % 3 === 1 ? "lr" : "rl" };
 }
 
 /* --------------------------------------------------------------- the call */
@@ -89,6 +136,8 @@ export async function submitShot(opts: {
   quality: Quality;
   move: Move;
   withPeople: boolean;
+  /** A reshoot note, in the agent's words. Empty on a first attempt. */
+  note?: string;
   callbackUrl?: string;
 }): Promise<SubmitResult> {
   const key = process.env.KIE_API_KEY;
@@ -98,7 +147,7 @@ export async function submitShot(opts: {
   const body: Record<string, unknown> = {
     model: m.model,
     input: {
-      prompt: buildPrompt(opts.move, opts.withPeople),
+      prompt: buildPrompt(opts.move, opts.withPeople, opts.note),
       image_url: opts.imageUrl,
       duration: VIDEO_DURATION_SECONDS,
       resolution: m.resolution,
