@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { getUserCredits } from "@/lib/subscription-service";
 import { RATES, quoteFilm, type Quality } from "@/lib/pricing";
+import { prepareForUpload, mb } from "@/lib/photo-prep";
 
 const DEMO = process.env.NEXT_PUBLIC_DEMO === "1";
 
@@ -59,6 +60,32 @@ type Shot = {
   /** When this shot was handed to KIE. Only used to drive the rendering bar. */
   startedAt: number;
 };
+
+/** A photo that made it onto KIE and is ready to be shot. */
+type Ready = { url: string; withPeople: boolean; hdCapable: boolean };
+
+/** A photo that didn't, and the reason in words rather than a status code. */
+type UploadFailure = { name: string; reason: string };
+
+/**
+ * Say what actually went wrong with an upload.
+ *
+ * A 413 never reaches our own route — Vercel rejects the body at the edge and
+ * answers in plain text — so there is no server message to pass on and this
+ * has to supply one. "Could not upload IMG_7885.jpeg (413)" told nobody
+ * anything, least of all which photo to swap.
+ */
+function describeUploadFailure(status: number, bytes: number): string {
+  // Don't assert why it was refused. Stating the size we actually sent is true
+  // whatever the reason, and reads sanely even when a 413 turns up on a small
+  // file — "still 0.3 MB after resizing" would just be nonsense.
+  if (status === 413) return `the server refused it as too large — sent ${mb(bytes)}`;
+  if (status === 415) return "not a JPEG, PNG or WebP";
+  if (status === 401) return "you were signed out — sign in and try again";
+  if (status === 429) return "too many uploads at once — wait a moment and retry";
+  if (status >= 500) return `the server didn't answer (${status})`;
+  return `upload failed (${status})`;
+}
 
 /** What a shot usually takes. Not a promise — the bar never sits full on it. */
 const EXPECTED_RENDER_MS = 180_000;
@@ -151,7 +178,9 @@ export default function CreateFilmPage() {
   const [step, setStep] = useState(1);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [quality, setQuality] = useState<Quality>("hd");
-  const [rejected, setRejected] = useState<string[]>([]);
+  const [rejected, setRejected] = useState<{ name: string; why: string }[]>([]);
+  const [failures, setFailures] = useState<UploadFailure[]>([]);
+  const [ready, setReady] = useState<Ready[]>([]);
   const [shots, setShots] = useState<Shot[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -186,17 +215,29 @@ export default function CreateFilmPage() {
 
   const softPhotos = photos.filter((p) => !p.hdCapable);
   const canDoHd = photos.length > 0 && softPhotos.length === 0;
-  const familyRooms = photos.filter((p) => p.withPeople).length;
-  const quote = useMemo(
-    () => quoteFilm(photos.length, photos.length && photos.every((p) => p.hdCapable) ? quality : "sd", familyRooms),
-    [photos, quality, familyRooms]
+  // One rule for what a set of photos costs, so the quote on the button and
+  // the quote on the "build the ones that worked" offer can never disagree —
+  // including the quality, which is a property of the set and moves when a
+  // photo drops out of it.
+  const qualityFor = useCallback(
+    (list: { hdCapable: boolean }[]): Quality =>
+      list.length > 0 && list.every((p) => p.hdCapable) ? quality : "sd",
+    [quality]
   );
+  const quoteFor = useCallback(
+    (list: { withPeople: boolean; hdCapable: boolean }[]) =>
+      quoteFilm(list.length, qualityFor(list), list.filter((p) => p.withPeople).length),
+    [qualityFor]
+  );
+
+  const quote = useMemo(() => quoteFor(photos), [quoteFor, photos]);
+  const readyQuote = useMemo(() => quoteFor(ready), [quoteFor, ready]);
 
   /* ---- step 1: intake ---------------------------------------------- */
 
   const addFiles = useCallback(async (files: FileList | null) => {
     if (!files) return;
-    const tooSmall: string[] = [];
+    const tooSmall: { name: string; why: string }[] = [];
     const next: Photo[] = [];
 
     for (const file of Array.from(files)) {
@@ -209,8 +250,17 @@ export default function CreateFilmPage() {
         img.src = url;
       });
       const shortEdge = Math.min(dims.w, dims.h);
+      // A photo this browser can't decode and one that's genuinely too small
+      // are different problems with different answers, so they don't share a
+      // message. HEIC straight off a Mac lands here, and "too small" would
+      // send you looking at the wrong thing.
+      if (!dims.w || !dims.h) {
+        tooSmall.push({ name: file.name, why: "this browser could not read it — try a JPEG" });
+        URL.revokeObjectURL(url);
+        continue;
+      }
       if (shortEdge < MIN_EDGE) {
-        tooSmall.push(`${file.name} — ${dims.w}×${dims.h}`);
+        tooSmall.push({ name: file.name, why: `${dims.w}×${dims.h} — under ${MIN_EDGE}px, too small for any reel` });
         URL.revokeObjectURL(url);
         continue;
       }
@@ -242,6 +292,7 @@ export default function CreateFilmPage() {
   async function generate() {
     setBusy(true);
     setError(null);
+    setFailures([]);
 
     if (DEMO) {
       // Local walk-through with no KIE spend: show the shape of the result.
@@ -265,44 +316,99 @@ export default function CreateFilmPage() {
       // Photos have to be hosted before KIE can read them. Four at a time:
       // twenty sequential round trips is a long wait staring at a spinner, and
       // twenty at once is a good way to get rate limited.
-      const uploaded: { url: string; withPeople: boolean }[] = new Array(photos.length);
+      //
+      // One photo failing no longer takes the other eleven with it. It used to
+      // throw out of the lane, which threw out of the whole run, so a single
+      // oversized file meant nothing built and no way to tell which file it
+      // was. Every photo now gets its own verdict and the run continues.
+      const uploaded: (Ready | null)[] = new Array(photos.length).fill(null);
+      const failed: UploadFailure[] = [];
       const LANES = 4;
       let cursor = 0;
       const lane = async () => {
         while (cursor < photos.length) {
           const i = cursor++;
           const ph = photos[i];
-          const fd = new FormData();
-          fd.append("file", ph.file);
-          const r = await fetch("/api/kie/upload", { method: "POST", body: fd });
-          const j = await r.json().catch(() => ({}));
-          if (!r.ok || !j?.url) {
-            // Surface what the server actually said. The old message was just
-            // "Could not upload <name>", which told nobody anything.
-            throw new Error(j?.error || `Could not upload ${ph.file.name} (${r.status})`);
+          try {
+            // Shrink before sending. Vercel drops anything over 4.5MB at the
+            // edge, and a phone photo is routinely bigger than that.
+            const prepped = await prepareForUpload(ph.file, ph.width, ph.height);
+            const fd = new FormData();
+            fd.append("file", prepped.file);
+            const r = await fetch("/api/kie/upload", { method: "POST", body: fd });
+
+            // Read the body as text and parse it by hand. A platform-level
+            // rejection isn't JSON, and res.json() would throw about parsing
+            // and bury the status that actually explains it.
+            const raw = await r.text();
+            let j: { url?: string; error?: string } = {};
+            try {
+              j = JSON.parse(raw);
+            } catch {
+              /* not ours — describeUploadFailure has to speak for it */
+            }
+            if (!r.ok || !j.url) {
+              throw new Error(j.error || describeUploadFailure(r.status, prepped.file.size));
+            }
+            uploaded[i] = { url: j.url, withPeople: ph.withPeople, hdCapable: ph.hdCapable };
+          } catch (e) {
+            failed.push({
+              name: ph.file.name,
+              reason: e instanceof Error ? e.message : "upload failed",
+            });
           }
-          uploaded[i] = { url: j.url, withPeople: ph.withPeople };
         }
       };
       await Promise.all(Array.from({ length: Math.min(LANES, photos.length) }, lane));
 
+      const good = uploaded.filter((u): u is Ready => u !== null);
+      setReady(good);
+
+      // Stop and hand him the choice rather than quietly building a shorter
+      // reel than the one he priced. Nothing is charged until startShots runs.
+      if (failed.length > 0) {
+        setFailures(failed);
+        return;
+      }
+
+      await startShots(good);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Hand the hosted photos to KIE and move to the approve screen. */
+  async function startShots(good: Ready[]) {
+    if (good.length === 0) return;
+    setBusy(true);
+    setError(null);
+    const shotQuote = quoteFor(good);
+    const shotQuality = qualityFor(good);
+
+    try {
       const res = await fetch("/api/generate-video/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ photos: uploaded, quality: effectiveQuality }),
+        body: JSON.stringify({
+          photos: good.map((g) => ({ url: g.url, withPeople: g.withPeople })),
+          quality: shotQuality,
+        }),
       });
       const json = await res.json();
       if (res.status === 402) {
         // Out of credits is the one failure with an obvious next action, so
         // it gets its own panel and a way to fix it rather than a red banner.
         setNeedCredits({
-          required: json.required ?? quote.credits,
+          required: json.required ?? shotQuote.credits,
           available: json.available ?? 0,
         });
         return;
       }
       if (!json.ok) throw new Error(json.error || "Could not start the reel");
 
+      setFailures([]);
       const initial: Shot[] = json.shots.map(
         (s: {
           position: number; sourceUrl: string; state: string;
@@ -575,10 +681,12 @@ export default function CreateFilmPage() {
           {rejected.length > 0 && (
             <div className="mt-6 border-[3px] border-[#131118] bg-[#131118] px-5 py-4 text-[#F1EEE3]">
               <div className="font-mono-brand mb-2 text-[12px] font-bold tracking-[0.1em] text-[#D8FF3E]">
-                SKIPPED — UNDER {MIN_EDGE}px, TOO SMALL FOR ANY REEL
+                SKIPPED — {rejected.length} PHOTO{rejected.length === 1 ? "" : "S"} NOT ADDED
               </div>
               {rejected.map((r) => (
-                <div key={r} className="text-[14px]">{r}</div>
+                <div key={r.name} className="text-[14px]">
+                  <strong>{r.name}</strong> — {r.why}
+                </div>
               ))}
             </div>
           )}
@@ -787,6 +895,62 @@ export default function CreateFilmPage() {
                   : `Generate ${quote.shots} shots`}
             </Btn>
           </div>
+
+          {/*
+            Directly under the button, which is where the finger already is.
+            An upload failure used to set the banner at the top of the page —
+            metres away on a phone — and killed the whole batch with it.
+          */}
+          {failures.length > 0 && (
+            <div className="mt-6 border-[3px] border-[#131118] bg-[#131118] px-5 py-4 text-[#F1EEE3]">
+              <div className="font-mono-brand mb-3 text-[12px] font-bold tracking-[0.1em] text-[#D8FF3E]">
+                {failures.length} PHOTO{failures.length === 1 ? "" : "S"} DIDN&apos;T UPLOAD
+              </div>
+              {failures.map((f) => (
+                <div key={f.name} className="mb-1 text-[15px] leading-[1.45]">
+                  <strong>{f.name}</strong> — {f.reason}
+                </div>
+              ))}
+
+              {ready.length > 0 ? (
+                <>
+                  <p className="m-0 mt-4 text-[15px] font-medium leading-[1.5]">
+                    The other {ready.length} uploaded fine and {ready.length === 1 ? "is" : "are"} ready
+                    to go. <strong>Nothing has been charged.</strong> Build those now, or go back and
+                    swap the {failures.length === 1 ? "one" : "ones"} above.
+                  </p>
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <Btn
+                      tone="lime"
+                      onClick={() => void startShots(ready)}
+                      disabled={busy || (balance !== null && balance < readyQuote.credits)}
+                    >
+                      {busy
+                        ? "Starting…"
+                        : balance !== null && balance < readyQuote.credits
+                          ? `Need ${(readyQuote.credits - balance).toLocaleString()} more credits`
+                          : `Build ${readyQuote.shots} shots — ${readyQuote.credits} cr`}
+                    </Btn>
+                    <Btn tone="ghost" onClick={() => { setFailures([]); setStep(1); }}>
+                      Back to photos
+                    </Btn>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="m-0 mt-4 text-[15px] font-medium leading-[1.5]">
+                    None of them uploaded, so there is nothing to build.{" "}
+                    <strong>Nothing has been charged.</strong>
+                  </p>
+                  <div className="mt-5">
+                    <Btn tone="ghost" onClick={() => { setFailures([]); setStep(1); }}>
+                      Back to photos
+                    </Btn>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </Panel>
       )}
 

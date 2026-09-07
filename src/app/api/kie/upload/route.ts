@@ -5,7 +5,13 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const UPLOAD_BASE = process.env.KIE_UPLOAD_BASE || "https://kieai.redpandaai.co";
-const MAX_BYTES = 25 * 1024 * 1024;
+/**
+ * Vercel refuses a request body over 4.5MB at the edge, before this function
+ * is invoked, and answers in plain text — so anything above that never gets
+ * here to be checked. This sits just under the real ceiling so the number is
+ * honest; the wizard shrinks photos client-side so it should never be hit.
+ */
+const MAX_BYTES = 4 * 1024 * 1024;
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 /**
@@ -35,7 +41,7 @@ export async function POST(req: Request) {
     }
     if (file.size > MAX_BYTES) {
       return NextResponse.json(
-        { ok: false, error: `${file.name} is larger than 25MB` },
+        { ok: false, error: `${file.name} is too large to upload` },
         { status: 413 }
       );
     }
